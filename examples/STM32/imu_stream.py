@@ -3,6 +3,53 @@ import time
 import termios
 import struct
 
+# top of file
+from collections import deque
+import matplotlib.pyplot as plt
+
+class LivePlot:
+    def __init__(self, window=400):
+        self.acc_x = deque([0.0] * window, maxlen=window)
+        self.acc_y = deque([0.0] * window, maxlen=window)
+        self.acc_z = deque([0.0] * window, maxlen=window)
+        self.gyr_x = deque([0.0] * window, maxlen=window)
+        self.gyr_y = deque([0.0] * window, maxlen=window)
+        self.gyr_z = deque([0.0] * window, maxlen=window)
+
+        plt.ion()
+        self.fig, (self.ax_acc, self.ax_gyr) = plt.subplots(2, 1, sharex=True)
+
+        self.ax_acc.set_ylabel("Accel (g)")
+        self.ax_acc.grid(True, linestyle=":")
+        self.line_acc_x, = self.ax_acc.plot(self.acc_x, label="ax")
+        self.line_acc_y, = self.ax_acc.plot(self.acc_y, label="ay")
+        self.line_acc_z, = self.ax_acc.plot(self.acc_z, label="az")
+        self.ax_acc.legend(loc="upper right")
+
+        self.ax_gyr.set_ylabel("Gyro (°/s)")
+        self.ax_gyr.set_xlabel("Samples")
+        self.ax_gyr.grid(True, linestyle=":")
+        self.line_gyr_x, = self.ax_gyr.plot(self.gyr_x, label="gx")
+        self.line_gyr_y, = self.ax_gyr.plot(self.gyr_y, label="gy")
+        self.line_gyr_z, = self.ax_gyr.plot(self.gyr_z, label="gz")
+        self.ax_gyr.legend(loc="upper right")
+
+    def update(self, ax_g, ay_g, az_g, gx_dps, gy_dps, gz_dps):
+        self.acc_x.append(ax_g); self.acc_y.append(ay_g); self.acc_z.append(az_g)
+        self.gyr_x.append(gx_dps); self.gyr_y.append(gy_dps); self.gyr_z.append(gz_dps)
+
+        self.line_acc_x.set_ydata(self.acc_x)
+        self.line_acc_y.set_ydata(self.acc_y)
+        self.line_acc_z.set_ydata(self.acc_z)
+        self.line_gyr_x.set_ydata(self.gyr_x)
+        self.line_gyr_y.set_ydata(self.gyr_y)
+        self.line_gyr_z.set_ydata(self.gyr_z)
+
+        self.ax_acc.relim(); self.ax_acc.autoscale_view()
+        self.ax_gyr.relim(); self.ax_gyr.autoscale_view()
+
+        plt.pause(0.001)
+
 DEVICE = "/dev/tty.usbmodem0x80000001"
 BAUD = 115200
 CMD_RAW_IMU = 102
@@ -114,11 +161,12 @@ def main():
         print("Hold the craft still while we measure bias...")
         acc_bias, gyro_bias = measure_bias(fd, samples=200)
         print("Bias:", acc_bias, gyro_bias)
-
+        plot = LivePlot()
         for frame in read_frames(fd):
             raw = decode_raw_imu(frame)
             values = apply_bias_and_scale(raw, acc_bias, gyro_bias)
             print(repr(values))
+            plot.update(*values)
     finally: os.close(fd)
 
 if __name__ == "__main__":
