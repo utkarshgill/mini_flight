@@ -43,17 +43,14 @@ def parse_buffer(buf: bytearray):
             buf.clear()
             break
 
-        if len(buf) < start + 5:
-            break # need more data
+        if len(buf) < start + 5: break # need more data
 
         size = buf[start + 3]
         frame_len = 5 + size + 1
-        if len(buf) < start + frame_len:
-            break # wait for rest
+        if len(buf) < start + frame_len: break # wait for rest
 
         frame = bytes(buf[start:start + frame_len])
         del buf[:start + frame_len]
-
         yield frame
 
 def read_frames(fd: int):
@@ -61,10 +58,8 @@ def read_frames(fd: int):
     while True:
         os.write(fd, msp_request(CMD_RAW_IMU))
         time.sleep(0.02)  # brief pause so the reply can arrive
-        try:
-            buf.extend(os.read(fd, 512))
-        except BlockingIOError:
-            continue
+        try: buf.extend(os.read(fd, 512))
+        except BlockingIOError: continue
         yield from parse_buffer(buf)
 
 def decode_raw_imu(frame: bytes):
@@ -78,17 +73,53 @@ def decode_raw_imu(frame: bytes):
     return struct.unpack_from("<9h", payload) # ax, ay, az, gx, gy, gz, mx, my, mz
 
 def repr(values):
-    ax, ay, az, gx, gy, gz, mx, my, mz = values
-    return f"Accel {ax:6d} {ay:6d} {az:6d} | Gyro {gx:6d} {gy:6d} {gz:6d} | Mag {mx:6d} {my:6d} {mz:6d}"
+    ax_g, ay_g, az_g, gx_dps, gy_dps, gz_dps = values
+    return f"Accel {ax_g:8.4f} {ay_g:8.4f} {az_g:8.4f} | Gyro {gx_dps:8.4f} {gy_dps:8.4f} {gz_dps:8.4f}"
+
+def measure_bias(fd, samples=200):
+    acc_sum = [0, 0, 0]
+    gyro_sum = [0, 0, 0]
+    for _ in range(samples):
+        frame = next(read_frames(fd))
+        ax, ay, az, gx, gy, gz, *_ = decode_raw_imu(frame)
+        acc_sum[0] += ax
+        acc_sum[1] += ay
+        acc_sum[2] += az
+        gyro_sum[0] += gx
+        gyro_sum[1] += gy
+        gyro_sum[2] += gz
+    acc_bias = [sum / samples for sum in acc_sum]
+    gyro_bias = [sum / samples for sum in gyro_sum]
+    return acc_bias, gyro_bias
+
+ACC_LSB_PER_G = 2048.0       # ±16 g range → 2048 counts = 1 g
+GYRO_LSB_PER_DPS = 16.384    # ±2000 °/s range → 16.384 counts = 1 °/s
+
+def apply_bias_and_scale(values, acc_bias, gyro_bias):
+    ax, ay, az, gx, gy, gz, *_ = values
+
+    ax = (ax - acc_bias[0]) / ACC_LSB_PER_G
+    ay = (ay - acc_bias[1]) / ACC_LSB_PER_G
+    az = (az - acc_bias[2]) / ACC_LSB_PER_G
+
+    gx = (gx - gyro_bias[0]) / GYRO_LSB_PER_DPS
+    gy = (gy - gyro_bias[1]) / GYRO_LSB_PER_DPS
+    gz = (gz - gyro_bias[2]) / GYRO_LSB_PER_DPS
+
+    return ax, ay, az, gx, gy, gz
 
 def main():
     fd = open_serial()
-    try: 
+    try:
+        print("Hold the craft still while we measure bias...")
+        acc_bias, gyro_bias = measure_bias(fd, samples=200)
+        print("Bias:", acc_bias, gyro_bias)
+
         for frame in read_frames(fd):
-            values = decode_raw_imu(frame)
+            raw = decode_raw_imu(frame)
+            values = apply_bias_and_scale(raw, acc_bias, gyro_bias)
             print(repr(values))
-    finally:
-        os.close(fd)
+    finally: os.close(fd)
 
 if __name__ == "__main__":
     main()
