@@ -86,9 +86,7 @@ def main():
     try: 
         for frame in read_frames(fd):
             values = decode_raw_imu(frame)
-            ax, ay, az, gx, gy, gz, mx, my, mz = values
             print(repr(values))
-            
     finally:
         os.close(fd)
 
