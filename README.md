@@ -36,6 +36,11 @@ Keyboard controls in the viewer:
 - A/D or left stick horizontal: yaw
 - X/Cross or Spacebar: pick/drop
 
+3. Run the configurator (IMU viewer at `http://127.0.0.1:8002`):
+   ```bash
+   python config/serve.py
+   ```
+
 ## More examples
 A quadrotor learning to stabilize itself.
 
