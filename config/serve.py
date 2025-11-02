@@ -9,9 +9,10 @@ import sys
 import time
 import threading
 from pathlib import Path
-from typing import Generator, Iterable
+from typing import Generator, Iterable, Optional
 
 from sim.serve import RendererServer, SharedState
+from miniflight.filters import ComplementaryFilter, Filter
 
 try:
     import termios
@@ -126,7 +127,7 @@ def apply_bias(values: tuple[int, ...], acc_bias, gyro_bias) -> tuple[float, flo
     return ax, ay, az, gx, gy, gz
 
 
-def imu_stream(shared: SharedState) -> None:
+def imu_stream(shared: SharedState, orientation_filter: Optional[Filter] = None) -> None:
     fd = open_serial()
     print(f"Connected to {DEVICE} @ {BAUD} baud")
     frames = read_frames(fd)
@@ -137,18 +138,31 @@ def imu_stream(shared: SharedState) -> None:
     print(f"Bias calibrated: accel=[{acc_fmt}] gyro=[{gyro_fmt}]")
     try:
         start = time.perf_counter()
+        last_update = None
         for frame in frames:
             raw = decode_raw_imu(frame)
             ax, ay, az, gx, gy, gz = apply_bias(raw, acc_bias, gyro_bias)
-            now = time.perf_counter() - start
-            shared.set_snapshot({
-                "world_time": now,
+            loop_time = time.perf_counter()
+            world_time = loop_time - start
+            dt = 0.0 if last_update is None else loop_time - last_update
+            last_update = loop_time
+
+            attitude = None
+            if orientation_filter is not None:
+                attitude = orientation_filter.update((ax, ay, az), (gx, gy, gz), dt)
+
+            snapshot = {
+                "world_time": world_time,
                 "imu": {
                     "accel": [ax, ay, az],
                     "gyro": [gx, gy, gz],
                     "source": DEVICE,
                 },
-            })
+            }
+            if attitude:
+                snapshot["attitude"] = attitude
+
+            shared.set_snapshot(snapshot)
             time.sleep(0.02)
     finally:
         if fd is not None:
@@ -158,11 +172,25 @@ def imu_stream(shared: SharedState) -> None:
 def main() -> None:
     static_dir = Path(__file__).resolve().parent
     shared_state = SharedState()
+    attitude_filter = ComplementaryFilter()
     renderer = RendererServer(shared_state, host="127.0.0.1", port=8002, static_dir=static_dir)
     renderer.start()
-    shared_state.set_snapshot({"world_time": 0.0, "imu": {"accel": [0, 0, 0], "gyro": [0, 0, 0], "source": "waiting"}})
+    shared_state.set_snapshot({
+        "world_time": 0.0,
+        "imu": {
+            "accel": [0, 0, 0],
+            "gyro": [0, 0, 0],
+            "source": "waiting",
+        },
+        "attitude": {
+            "filter": attitude_filter.name,
+            "quaternion": [1.0, 0.0, 0.0, 0.0],
+            "euler_deg": [0.0, 0.0, 0.0],
+            "euler_rad": [0.0, 0.0, 0.0],
+        },
+    })
     print("*** Configurator running at http://127.0.0.1:8002")
-    producer = threading.Thread(target=imu_stream, args=(shared_state,), daemon=True)
+    producer = threading.Thread(target=imu_stream, args=(shared_state, attitude_filter), daemon=True)
     producer.start()
     try:
         while producer.is_alive():

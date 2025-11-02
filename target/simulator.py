@@ -1,5 +1,3 @@
-import os
-
 import numpy as np
 from miniflight.hal import HAL
 from sim import Vector3D, Quaternion, World, RungeKuttaIntegrator, GravitationalForce, GroundCollision, IMUSensor, Motor, Renderer
