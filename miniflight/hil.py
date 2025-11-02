@@ -39,40 +39,16 @@ class Keyboard(HIL):
         self.max_tilt = 0.5
         self.yaw_rate_gain = np.pi/2
 
-    def handle_pybullet(self, renderer):
-        """
-        Poll PyBullet keyboard events and update key_state.
-        """
-        p = renderer.p
-        # Reset key states each frame
+    def update_key_state(self, key_state):
+        """Update key_state from renderer-provided input."""
         self.key_state.clear()
-        events = p.getKeyboardEvents()
-        for code, state in events.items():
-            down = bool(state & (p.KEY_IS_DOWN | p.KEY_WAS_TRIGGERED))
-            up = bool(state & p.KEY_WAS_RELEASED)
-            if not (down or up):
-                continue
-            if code in (ord('w'), ord('W')):
-                self.key_state['w'] = down
-            elif code in (ord('s'), ord('S')):
-                self.key_state['s'] = down
-            elif code in (ord('a'), ord('A')):
-                self.key_state['a'] = down
-            elif code in (ord('d'), ord('D')):
-                self.key_state['d'] = down
-            elif code == p.B3G_LEFT_ARROW:
-                self.key_state['left'] = down
-            elif code == p.B3G_RIGHT_ARROW:
-                self.key_state['right'] = down
-            elif code == p.B3G_UP_ARROW:
-                self.key_state['up'] = down
-            elif code == p.B3G_DOWN_ARROW:
-                self.key_state['down'] = down
-            # Pickup/drop with X key or spacebar
-            elif code in (ord('x'), ord('X')):
-                self.key_state['x'] = down
-            elif code == ord(' '):
-                self.key_state[' '] = down
+        if isinstance(key_state, dict):
+            for key, pressed in key_state.items():
+                if pressed:
+                    self.key_state[key] = True
+        else:
+            for key in key_state:
+                self.key_state[key] = True
 
     def on_key_press(self, event):
         """Matplotlib key press handler."""

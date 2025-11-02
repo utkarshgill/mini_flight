@@ -9,7 +9,7 @@ if str(_ROOT) not in sys.path:
 import os
 import numpy as np
 from miniflight.hal import HAL
-from sim import Vector3D, World, RungeKuttaIntegrator, GravitationalForce, GroundCollision, IMUSensor, Motor, Renderer
+from sim import Vector3D, Quaternion, World, RungeKuttaIntegrator, GravitationalForce, GroundCollision, IMUSensor, Motor, Renderer
 from sim.engine import Quadcopter
 
 class Board(HAL):
@@ -44,6 +44,14 @@ class Board(HAL):
         self.world.add_body(self.quad)
         # Initial update to populate state
         self.world.update()
+        self._spawn_pose = {
+            "position": tuple(self.quad.position.v.tolist()),
+            "velocity": tuple(self.quad.velocity.v.tolist()),
+            "acceleration": tuple(self.quad.acceleration.v.tolist()),
+            "orientation": tuple(self.quad.orientation.q.tolist()),
+            "angular_velocity": tuple(self.quad.angular_velocity.v.tolist()),
+        }
+        self._space_held = False
         # Set up visualization
         try:
             self.renderer = Renderer(self.world, config='X', gui=True)
@@ -61,19 +69,41 @@ class Board(HAL):
         self.quad.motor_thrusts = commands
         # Advance simulation
         self.world.update()
-        # Capture keyboard events via HIL if available
-        if hasattr(self, 'hil') and hasattr(self.hil, 'handle_pybullet'):
-            try:
-                self.hil.handle_pybullet(self.renderer)
-            except Exception as e:
-                print(f"HIL handle_pybullet error: {e}")
-        # Draw the scene if renderer is available
+        input_state = {}
         if hasattr(self, 'renderer'):
+            if hasattr(self.renderer, 'get_input_state'):
+                try:
+                    input_state = self.renderer.get_input_state()
+                except Exception as e:
+                    print(f"Renderer input error: {e}")
             try:
                 self.renderer.draw()
             except Exception as e:
                 print(f"Renderer draw error: {e}")
+        space_down = bool(input_state.get(' '))
+        if space_down and not self._space_held:
+            self._respawn_quad()
+        self._space_held = space_down
+        if space_down:
+            input_state.pop(' ', None)
+        if hasattr(self, 'hil') and hasattr(self.hil, 'update_key_state'):
+            try:
+                self.hil.update_key_state(input_state)
+            except Exception as e:
+                print(f"HIL update_key_state error: {e}")
         return commands
+
+    def _respawn_quad(self) -> None:
+        self.quad.position = Vector3D(*self._spawn_pose["position"])
+        self.quad.velocity = Vector3D(*self._spawn_pose["velocity"])
+        self.quad.acceleration = Vector3D(*self._spawn_pose["acceleration"])
+        self.quad.orientation = Quaternion(*self._spawn_pose["orientation"])
+        self.quad.orientation.normalize()
+        self.quad.angular_velocity = Vector3D(*self._spawn_pose["angular_velocity"])
+        self.quad.integrator = RungeKuttaIntegrator()
+        actuator_count = len(getattr(self.quad, 'actuators', [])) or len(getattr(self.quad, 'motor_thrusts', [])) or 4
+        self.quad.motor_thrusts = [0.0] * actuator_count
+        self.world.current_state, self.world.current_flat = self.world.get_state()
 
 if __name__ == '__main__':
     # Run firmware main loop in simulation mode

@@ -17,18 +17,19 @@ Open source flight controllers are bloated, complex, and nearly impossible to de
 
 ## Getting Started
 
-1. Install dependencies & create environment:
+1. Create a virtual environment and install deps (Python 3.10+):
    ```bash
-   bash setup.sh
-   conda activate pybullet_env
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -e .
    ```
 
-2. Run the quad simulation:
+2. Run the quad simulation (starts the web viewer on `http://127.0.0.1:8001`):
    ```bash
    python target/sim.py
    ```
 
-Use PS5 DualSense or keyboard:
+Keyboard controls in the viewer:
 
 - W/S or left stick vertical: throttle up/down
 - Arrow keys or right stick: pitch/roll

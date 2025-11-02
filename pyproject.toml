@@ -1,10 +1,18 @@
+# pyproject.toml
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "miniflight"
 version = "0.1.0"
 description = "Physics engine"
-
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-    "scipy>=1.10 ; extra == 'test'",  # only for reference validation
+dependencies = [
+    "numpy>=1.24",
+    "matplotlib",
+    "hidapi",
+    "gymnasium",
 ]
+
+[tool.setuptools.packages.find]
+include = ["miniflight", "common", "sim", "target"]
