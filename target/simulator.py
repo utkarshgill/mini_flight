@@ -98,8 +98,4 @@ class Board(HAL):
         self.quad.motor_thrusts = [0.0] * actuator_count
         self.world.current_state, self.world.current_flat = self.world.get_state()
 
-if __name__ == '__main__':
-    # Run firmware main loop in simulation mode
-    os.environ['TARGET'] = 'sim'
-    from miniflight.main import main
-    main() 
+__all__ = ["Board"]
