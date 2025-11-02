@@ -1,9 +1,9 @@
 <div align="center">
 <picture>
-   <img src="https://github.com/user-attachments/assets/e083cd13-de4e-4212-91ec-881500eb5bd8" alt="miniflight logo" width="30%"/>
+   <img src="https://github.com/user-attachments/assets/4506bc62-75cc-4e99-8465-1384141b9f2d" alt="miniflight logo" width="20%"/>
 </picture>
 
-miniflight is a minimal flight control firmware.
+miniflight is a minimal flight control firmware
 
 </div>
 
