@@ -14,9 +14,7 @@ This may not be the best flight stack, but it is a flight stack.
 Open source flight controllers are bloated, complex, and nearly impossible to debug or extend. Due to its extreme simplicity, miniflight aims to be the easiest controller to add targets to, with support for both config and simulation.
 
 <div align="center">
-  <picture>
-    <img src="https://github.com/user-attachments/assets/165a2c2c-b6de-4b1b-a522-d552a0697766" alt="demo video" width="100%"/>
-  </picture>
+  <video src="https://github.com/user-attachments/assets/165a2c2c-b6de-4b1b-a522-d552a0697766" controls autoplay muted loop playsinline style="width: 100%; max-width: 960px; border-radius: 12px; box-shadow: 0 12px 32px rgba(15, 23, 42, 0.4);"></video>
 </div>
 
 ## Getting Started
