@@ -3,7 +3,7 @@
    <img src="https://github.com/user-attachments/assets/e083cd13-de4e-4212-91ec-881500eb5bd8" alt="miniflight logo" width="30%"/>
 </picture>
 
-mini_flight is a minimal flight control firmware.
+miniflight is a minimal flight control firmware.
 
 </div>
 
