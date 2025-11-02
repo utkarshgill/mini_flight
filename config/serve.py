@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from typing import Generator, Iterable, Optional
 
-from sim.serve import RendererServer, SharedState
+from common.serve import RendererServer, SharedState, maybe_launch_browser
 from miniflight.filters import ComplementaryFilter, Filter
 
 try:
@@ -173,7 +173,9 @@ def main() -> None:
     static_dir = Path(__file__).resolve().parent
     shared_state = SharedState()
     attitude_filter = ComplementaryFilter()
-    renderer = RendererServer(shared_state, host="127.0.0.1", port=8002, static_dir=static_dir)
+    host = os.getenv("MINIFLIGHT_CONFIG_HOST", os.getenv("MINIFLIGHT_RENDER_HOST", "127.0.0.1"))
+    port = int(os.getenv("MINIFLIGHT_CONFIG_PORT", "8002"))
+    renderer = RendererServer(shared_state, host=host, port=port, static_dir=static_dir)
     renderer.start()
     shared_state.set_snapshot({
         "world_time": 0.0,
@@ -189,7 +191,9 @@ def main() -> None:
             "euler_rad": [0.0, 0.0, 0.0],
         },
     })
-    print("*** Configurator running at http://127.0.0.1:8002")
+    url = f"http://{host}:{port}".replace("0.0.0.0", "127.0.0.1")
+    print(f"*** Configurator running at {url}")
+    maybe_launch_browser(url)
     producer = threading.Thread(target=imu_stream, args=(shared_state, attitude_filter), daemon=True)
     producer.start()
     try:
