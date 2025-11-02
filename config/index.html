@@ -43,8 +43,9 @@
       header p { margin: 0; opacity: 0.7; }
       .cards {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 20px;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr);
+        grid-auto-rows: minmax(0, auto);
+        gap: 16px;
         align-items: stretch;
       }
       .card {
@@ -56,6 +57,10 @@
         flex-direction: column;
         gap: 12px;
       }
+      .chart-card {
+        grid-column: 1;
+        height: auto;
+      }
       .card h2 {
         margin: 0;
         font-size: 18px;
@@ -64,7 +69,7 @@
       .chart-container {
         position: relative;
         width: 100%;
-        height: clamp(220px, 40vh, 320px);
+        height: clamp(160px, 28vh, 220px);
       }
       canvas {
         width: 100% !important;
@@ -73,8 +78,8 @@
       }
       .viz-container {
         position: relative;
-        width: 100%;
-        height: clamp(260px, 45vh, 360px);
+        flex: 1 1 auto;
+        min-height: clamp(220px, 38vh, 300px);
         border-radius: 16px;
         background: radial-gradient(circle at top, rgba(59,130,246,0.12), rgba(15,23,42,0.9));
         box-shadow: inset 0 0 0 1px rgba(59,130,246,0.08);
@@ -92,6 +97,22 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: 'tnum';
+      }
+      #accValues,
+      #gyroValues {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      #accValues span,
+      #gyroValues span {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 6px;
+        flex: 1 1 30%;
+        min-width: 96px;
       }
       .values.attitudes {
         flex-direction: row;
@@ -100,8 +121,17 @@
         gap: 8px;
       }
       .values.attitudes span {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 6px;
         flex: 1 1 30%;
-        min-width: 90px;
+        min-width: 96px;
+      }
+      .attitude-card {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        display: flex;
+        flex-direction: column;
       }
       footer {
         opacity: 0.6;
@@ -115,6 +145,15 @@
         header {
           flex-direction: column;
           align-items: flex-start;
+        }
+        .cards {
+          grid-template-columns: 1fr;
+          grid-auto-rows: auto;
+        }
+        .chart-card,
+        .attitude-card {
+          grid-column: 1;
+          grid-row: auto;
         }
         .chart-container {
           height: clamp(200px, 36vh, 280px);
@@ -141,14 +180,14 @@
         <div class="values" id="status">Waiting for data…</div>
       </header>
       <div class="cards">
-        <div class="card">
+        <div class="card chart-card">
           <h2>Accelerometer (g)</h2>
           <div class="chart-container">
             <canvas id="accChart"></canvas>
           </div>
           <div class="values" id="accValues"></div>
         </div>
-        <div class="card">
+        <div class="card chart-card">
           <h2>Gyroscope (°/s)</h2>
           <div class="chart-container">
             <canvas id="gyroChart"></canvas>

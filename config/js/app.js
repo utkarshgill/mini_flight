@@ -190,9 +190,11 @@ function pushSample(chart, values, throttle) {
 }
 
 function renderVector(el, prefix, values, units) {
-  el.innerHTML = `${prefix}x: ${values[0].toFixed(3)} ${units}<br>` +
-                  `${prefix}y: ${values[1].toFixed(3)} ${units}<br>` +
-                  `${prefix}z: ${values[2].toFixed(3)} ${units}`;
+  el.innerHTML = [
+    `<span>${prefix}x: ${values[0].toFixed(3)} ${units}</span>`,
+    `<span>${prefix}y: ${values[1].toFixed(3)} ${units}</span>`,
+    `<span>${prefix}z: ${values[2].toFixed(3)} ${units}</span>`,
+  ].join("");
 }
 
 function renderAngles(el, angles) {
@@ -202,9 +204,9 @@ function renderAngles(el, angles) {
     : [angles.roll, angles.pitch, angles.yaw];
   if (![roll, pitch, yaw].every((value) => Number.isFinite(value))) return;
   el.innerHTML = [
-    `<span>roll: ${roll.toFixed(1)} deg</span>`,
-    `<span>pitch: ${pitch.toFixed(1)} deg</span>`,
-    `<span>yaw: ${yaw.toFixed(1)} deg</span>`,
+    `<span>roll: ${roll.toFixed(1)}°</span>`,
+    `<span>pitch: ${pitch.toFixed(1)}°</span>`,
+    `<span>yaw: ${yaw.toFixed(1)}°</span>`,
   ].join("");
 }
 
