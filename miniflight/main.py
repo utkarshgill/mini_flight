@@ -25,7 +25,7 @@ def init_hal(config: dict, controller: StabilityController, dt: float):
     """Initialize the appropriate HAL based on target: use Board for sim, generic HAL otherwise."""
     target_name = config.get("target")
     if target_name == "sim":
-        from target.sim import Board
+        from target.simulator import Board
         return Board(dt=dt, controller=controller, config=config)
     # Default to generic HAL
     return HAL(config)

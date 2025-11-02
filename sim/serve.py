@@ -281,3 +281,14 @@ class BrowserRenderer:
 Renderer = BrowserRenderer
 
 
+def main() -> None:
+    """Run the firmware control loop with the simulation renderer."""
+    os.environ.setdefault("TARGET", "sim")
+    from miniflight.main import main as firmware_main
+
+    firmware_main()
+
+
+if __name__ == "__main__":
+    main()
+

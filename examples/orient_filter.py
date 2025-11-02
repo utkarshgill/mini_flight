@@ -23,16 +23,10 @@ import sys
 import termios
 import time
 import glob
-from pathlib import Path
-
-# Ensure project root is on PYTHONPATH so we can import sim package when running from examples/
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 # Lazy-import PyBullet renderer and simulation classes; guarded in case dependencies are missing
 try:
-    from tools.sim import Vector3D, Quaternion, Body, World, Renderer
+    from sim import Vector3D, Quaternion, Body, World, Renderer
 except Exception as _e:
     print(f"[orient_filter] WARNING: Could not import renderer dependencies ({_e}). Visualization disabled.")
     Renderer = None

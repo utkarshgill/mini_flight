@@ -11,7 +11,7 @@ import math
 import numpy as np
 import pytest
 
-from tools.sim import Body, RungeKuttaIntegrator
+from sim.engine import Body, RungeKuttaIntegrator
 from common.math import Vector3D
 
 

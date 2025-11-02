@@ -1,14 +1,7 @@
 import unittest
-import sys
-import os
-
-# Ensure project root is in path
-root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if root_dir not in sys.path:
-    sys.path.insert(0, root_dir)
 
 import numpy as np
-from tools.sim import GravitationalForce, EulerIntegrator, Body
+from sim.engine import GravitationalForce, EulerIntegrator, Body
 from common.math import Vector3D
 from scipy.spatial.transform import Rotation as SciRot
 from scipy.integrate import solve_ivp

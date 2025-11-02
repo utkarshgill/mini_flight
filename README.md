@@ -26,7 +26,7 @@ Open source flight controllers are bloated, complex, and nearly impossible to de
 
 2. Run the quad simulation (starts the web viewer on `http://127.0.0.1:8001`):
    ```bash
-   python target/sim.py
+   python sim/serve.py
    ```
 
 Keyboard controls in the viewer:

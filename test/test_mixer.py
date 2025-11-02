@@ -2,7 +2,7 @@
 
 import numpy as np
 from common.math import Vector3D
-from tools.sim import GenericMixer
+from miniflight.control import GenericMixer
 
 
 class Dummy:

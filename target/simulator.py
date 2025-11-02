@@ -1,12 +1,5 @@
-import sys
-from pathlib import Path
-
-# Ensure project root is on PYTHONPATH for module imports
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
 import os
+
 import numpy as np
 from miniflight.hal import HAL
 from sim import Vector3D, Quaternion, World, RungeKuttaIntegrator, GravitationalForce, GroundCollision, IMUSensor, Motor, Renderer
