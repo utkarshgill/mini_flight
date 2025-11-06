@@ -30,6 +30,69 @@ def init_hal(config: dict, controller: StabilityController, dt: float):
     # Default to generic HAL
     return HAL(config)
 
+class Controls:
+    """
+    Controls-style loop: update() -> state_control() -> publish() -> run().
+    """
+
+    def __init__(self, config: dict):
+        # dt and controller
+        self.dt = config.get("dt", 0.01)
+        self.controller = StabilityController()
+
+        # HAL
+        self.hal = init_hal(config, self.controller, self.dt)
+
+        # HIL (keyboard/dualsense)
+        self.hal.keyboard = Keyboard()
+        self.hal.dualsense = DualSense()
+        self.hal.hil = self.hal.dualsense if getattr(self.hal.dualsense, 'h', None) else self.hal.keyboard
+
+        # Mixer inferred from actuators on the quad (sim target)
+        if hasattr(self.hal, 'quad') and hasattr(self.hal.quad, 'actuators'):
+            positions = [act.r_body for act in self.hal.quad.actuators]
+            spins = [act.spin for act in self.hal.quad.actuators]
+            self.hal.mixer = GenericMixer(positions, spins)
+        logger.info(f"HAL initialized ({type(self.hal).__name__})")
+
+        # Cached IO
+        self._body = None
+        self._time = 0.0
+        self._motors = None
+
+    def update(self):
+        # Read current body and time from HAL
+        self._body, self._time = self.hal.read()
+        # Update HIL setpoints
+        if hasattr(self.hal, 'hil'):
+            self.hal.hil.update(self.controller, self.dt)
+
+    def state_control(self):
+        # Compute command from controller
+        cmd = self.controller.update(self._body, self.dt)
+        # Mix to motor thrusts if mixer available
+        if hasattr(self.hal, 'mixer'):
+            self._motors = list(self.hal.mixer.mix(cmd))
+        else:
+            self._motors = cmd
+
+    def publish(self):
+        # Write motor commands to HAL
+        self.hal.write(self._motors)
+
+    def run(self):
+        # Single scheduled step at dt calling update -> state_control -> publish
+        def step():
+            self.update()
+            self.state_control()
+            self.publish()
+
+        scheduler = Scheduler()
+        scheduler.add_task(step, period=self.dt)
+        logger.info("Starting controls loop")
+        scheduler.run()
+
+
 def main():
     # Load configuration
     config = load_config()
@@ -39,41 +102,7 @@ def main():
         config["target"] = target_env.lower()
     logger.info("Configuration loaded")
 
-    # Time step for control and simulation
-    dt = config.get("dt", 0.01)
-
-    # Instantiate controller and HAL
-    controller = StabilityController()
-    hal = init_hal(config, controller, dt)
-    # Attach HIL devices in main
-    hal.keyboard = Keyboard()
-    hal.dualsense = DualSense()
-    hal.hil = hal.dualsense if getattr(hal.dualsense, 'h', None) else hal.keyboard
-    # Attach mixer based on HAL actuators
-    positions = [act.r_body for act in hal.quad.actuators]
-    spins = [act.spin for act in hal.quad.actuators]
-    hal.mixer = GenericMixer(positions, spins)
-    logger.info(f"HAL initialized ({type(hal).__name__})")
-
-    # Define step callback with explicit pipeline
-    def step():
-        # 1) Read current body state and time
-        body, t = hal.read()
-        logger.info(f"Step @ t={t:.3f}, pos=({body.position.v[0]:.2f},{body.position.v[1]:.2f},{body.position.v[2]:.2f})")
-        # 2) Human-in-the-loop update
-        hal.hil.update(controller, dt)
-        # 3) Control based on current body
-        cmd = controller.update(body, dt)
-        # 4) Mix to per-motor thrusts if available
-        motors = list(hal.mixer.mix(cmd)) if hasattr(hal, 'mixer') else cmd
-        # 5) Write motor commands
-        hal.write(motors)
-
-    # Setup and run scheduler with explicit pipeline
-    scheduler = Scheduler()
-    scheduler.add_task(step, period=dt)
-    logger.info("Starting scheduler loop")
-    scheduler.run()
+    Controls(config).run()
 
 if __name__ == "__main__":
     main() 
