@@ -8,7 +8,6 @@ from common.logger import get_logger
 from common.scheduler import Scheduler
 from miniflight.control import StabilityController, GenericMixer
 from miniflight.hal      import HAL
-from miniflight.hil      import Keyboard, DualSense
 from miniflight.utils    import load_config
 
 logger = get_logger("firmware")
@@ -35,11 +34,6 @@ class Controls:
         # HAL
         self.hal = init_hal(config, self.controller, self.dt)
 
-        # HIL (keyboard/dualsense)
-        self.hal.keyboard = Keyboard()
-        self.hal.dualsense = DualSense()
-        self.hal.hil = self.hal.dualsense if getattr(self.hal.dualsense, 'h', None) else self.hal.keyboard
-
         # Mixer inferred from actuators on the quad (sim target)
         if hasattr(self.hal, 'quad') and hasattr(self.hal.quad, 'actuators'):
             positions = [act.r_body for act in self.hal.quad.actuators]
@@ -55,9 +49,7 @@ class Controls:
     def update(self):
         # Read current body and time from HAL
         self._body, self._time = self.hal.read()
-        # Update HIL setpoints
-        if hasattr(self.hal, 'hil'):
-            self.hal.hil.update(self.controller, self.dt)
+        # Input mapping (if handled inside HAL.read for sim target)
 
     def state_control(self):
         # Compute command from controller
