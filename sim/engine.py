@@ -2,7 +2,7 @@
 # Core simulation engine: messaging, scheduling, world, and high-level simulator
 
 import numpy as np
-from common.math import Vector3D, Quaternion
+from common.math import Vector3D, Quaternion, GRAVITY
 from common.interface import Sensor, Actuator
 
 # --- World ---
@@ -114,7 +114,6 @@ class World:
         self.current_state, self.current_flat = self.get_state()
 
 # --- Rigid-body dynamics relocated from dynamics.py ---
-GRAVITY = 9.8
 
 class EulerIntegrator:
     """Simple Euler integrator for Body state updates."""

@@ -2,22 +2,14 @@
 Control module: generic PID and stability controllers.
 """
 import numpy as np
-import json
 
-from sim import Controller, Quaternion
-from common.math import wrap_angle, GRAVITY
+from common.interface import Controller
+from common.math import wrap_angle, GRAVITY, Quaternion
 from common.interface import Actuator
+from miniflight.utils import load_config
 
 
-def load_config(path: str = "config.json") -> dict:
-    """
-    Load JSON configuration and return a dict.
-    """
-    try:
-        with open(path, 'r') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+ 
 
 class PIDController:
     """

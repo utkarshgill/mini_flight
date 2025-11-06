@@ -2,7 +2,6 @@
 """
 Entry point for firmware: load configuration, setup HAL and scheduler, and run control loop.
 """
-import json
 import os
 
 from common.logger import get_logger
@@ -10,16 +9,9 @@ from common.scheduler import Scheduler
 from miniflight.control import StabilityController, GenericMixer
 from miniflight.hal      import HAL
 from miniflight.hil      import Keyboard, DualSense
+from miniflight.utils    import load_config
 
 logger = get_logger("firmware")
-
-def load_config(path: str = "config.json") -> dict:
-    try:
-        with open(path, 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        logger.info(f"Config file '{path}' not found, using defaults.")
-        return {}
 
 def init_hal(config: dict, controller: StabilityController, dt: float):
     """Initialize the appropriate HAL based on target: use Board for sim, generic HAL otherwise."""
