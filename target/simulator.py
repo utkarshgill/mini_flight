@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from common.math import wrap_angle
-from common.types import ImuSample, StateEstimate
+from common.math import wrap_angle, GRAVITY
+from common.types import ImuSample, SensorReadings, StateEstimate
 from miniflight.board import Board
-from common.interface import Sensor, Actuator, Estimator
+from common.interface import Sensor, Actuator
 from sim import (
     Vector3D,
     Quaternion,
@@ -112,8 +112,12 @@ class SimWorld:
             self._update_from_keyboard(keyboard_state)
 
     def imu_sample(self) -> ImuSample:
-        """Return a synthetic IMU sample from the quad state."""
-        accel = tuple(self.quad.acceleration.v.tolist())
+        """Return synthetic IMU sample: specific force and body rates."""
+        a_world = self.quad.acceleration.v
+        g_world = np.array([0.0, 0.0, -GRAVITY])
+        f_world = a_world - g_world
+        f_body_vec = self.quad.orientation.conjugate().rotate(Vector3D(*f_world))
+        accel = tuple(f_body_vec.v.tolist())
         gyro = tuple(self.quad.angular_velocity.v.tolist())
         return ImuSample(accel=accel, gyro=gyro, timestamp=self.time())
 
@@ -265,33 +269,20 @@ class SimMotorActuator(Actuator):
         self._world.apply_motor_commands(command)
 
 
-class DirectStateEstimator(Estimator):
-    """Simulator-only estimator: returns ground truth state."""
-
-    def __init__(self, world: SimWorld):
-        self._world = world
-
-    def update(self, sample: ImuSample, dt: float) -> StateEstimate:
-        del sample, dt  # unused
-        return self._world.state()
-
-
 class SimBoard(Board):
     """Board implementation backed by the simulator world."""
 
     def __init__(self, controller, dt: float = 0.01):
-        super().__init__(controller)
         self.dt = dt
         self._world = SimWorld(controller, dt)
         self._imu = SimImuSensor(self._world)
         self._motors = SimMotorActuator(self._world)
-        self._estimator = DirectStateEstimator(self._world)
 
-    def read_state(self):
+    def read_sensors(self) -> SensorReadings:
         self._world.update_pilot_inputs()
         imu_sample = self._imu.read()
-        state = self._estimator.update(imu_sample, self.dt)
-        return state, self._world.time()
+        altitude = float(self._world.quad.position.v[2])
+        return SensorReadings(imu=imu_sample, timestamp=imu_sample.timestamp, altitude=altitude)
 
     def write_actuators(self, commands):
         self._motors.write(commands)

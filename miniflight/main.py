@@ -8,6 +8,7 @@ from common.logger import get_logger
 from common.scheduler import Scheduler
 from miniflight.control import StabilityController, GenericMixer
 from miniflight.board   import Board
+from miniflight.estimate import MahonyEstimator
 
 logger = get_logger("firmware")
 
@@ -26,6 +27,7 @@ class Controls:
     def __init__(self, target: str | None, dt: float = 0.01):
         self.dt = dt
         self.controller = StabilityController()
+        self.estimator = MahonyEstimator()
 
         # Board
         self.board = init_board(target, self.controller, self.dt)
@@ -39,27 +41,17 @@ class Controls:
         logger.info(f"Board initialized ({type(self.board).__name__})")
 
 
-    def update(self):
-        # Read current state estimate and time from HAL
-        return self.board.read_state()
-
-    def state_control(self, state):
-        # Compute command from controller
+    def update_and_control(self):
+        readings = self.board.read_sensors()
+        state = self.estimator.update(readings, self.dt)
         cmd = self.controller.update(state, self.dt)
-        # Mix to motor thrusts if mixer available
         motors = list(self.mixer.mix(cmd)) if self.mixer is not None else cmd
-       
-        return cmd, motors
-    def publish(self, motors):
-        # Write motor commands to HAL
         self.board.write_actuators(motors)
 
     def run(self):
         # Single scheduled step at dt calling update -> state_control -> publish
         def step():
-            state, t = self.update()
-            cmd, motors = self.state_control(state)
-            self.publish(motors)
+            self.update_and_control()
 
         scheduler = Scheduler()
         scheduler.add_task(step, period=self.dt)

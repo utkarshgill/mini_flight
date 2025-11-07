@@ -261,3 +261,11 @@ async function pollState() {
 
 pollState();
 
+document.getElementById("resetYawBtn").addEventListener("click", async () => {
+  try {
+    await fetch("/reset_yaw", { method: "POST" });
+  } catch (err) {
+    console.error("config: failed to reset yaw", err);
+  }
+});
+

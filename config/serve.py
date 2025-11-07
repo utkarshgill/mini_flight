@@ -3,16 +3,18 @@
 
 from __future__ import annotations
 
+import math
 import os
 import struct
 import sys
 import time
 import threading
 from pathlib import Path
-from typing import Generator, Iterable, Optional
+from typing import Generator, Iterable
 
 from common.serve import RendererServer, SharedState, maybe_launch_browser
-from miniflight.filters import ComplementaryFilter, Filter
+from common.types import ImuSample, SensorReadings
+from miniflight.estimate import MahonyEstimator
 
 try:
     import termios
@@ -127,7 +129,7 @@ def apply_bias(values: tuple[int, ...], acc_bias, gyro_bias) -> tuple[float, flo
     return ax, ay, az, gx, gy, gz
 
 
-def imu_stream(shared: SharedState, orientation_filter: Optional[Filter] = None) -> None:
+def imu_stream(shared: SharedState, estimator: MahonyEstimator) -> None:
     fd = open_serial()
     print(f"Connected to {DEVICE} @ {BAUD} baud")
     frames = read_frames(fd)
@@ -147,9 +149,22 @@ def imu_stream(shared: SharedState, orientation_filter: Optional[Filter] = None)
             dt = 0.0 if last_update is None else loop_time - last_update
             last_update = loop_time
 
-            attitude = None
-            if orientation_filter is not None:
-                attitude = orientation_filter.update((ax, ay, az), (gx, gy, gz), dt)
+            # Adjust axes to match simulator orientation (negate Y/Z)
+            ax_r, ay_r, az_r = ax, -ay, -az
+            gx_r, gy_r, gz_r = gx, -gy, -gz
+
+            imu_sample = ImuSample(
+                accel=(ax_r, ay_r, az_r),
+                gyro=(math.radians(gx_r), math.radians(gy_r), math.radians(gz_r)),
+                timestamp=world_time,
+            )
+            readings = SensorReadings(imu=imu_sample, timestamp=world_time)
+
+            if shared.check_and_clear_reset_yaw():
+                estimator.reset()
+
+            state = estimator.update(readings, dt)
+            roll, pitch, yaw = state.orientation.to_euler()
 
             snapshot = {
                 "world_time": world_time,
@@ -158,9 +173,13 @@ def imu_stream(shared: SharedState, orientation_filter: Optional[Filter] = None)
                     "gyro": [gx, gy, gz],
                     "source": DEVICE,
                 },
+                "attitude": {
+                    "filter": "mahony",
+                    "quaternion": [float(v) for v in state.orientation.q.tolist()],
+                    "euler_deg": [math.degrees(roll), math.degrees(pitch), math.degrees(yaw)],
+                    "euler_rad": [roll, pitch, yaw],
+                },
             }
-            if attitude:
-                snapshot["attitude"] = attitude
 
             shared.set_snapshot(snapshot)
             time.sleep(0.02)
@@ -172,7 +191,7 @@ def imu_stream(shared: SharedState, orientation_filter: Optional[Filter] = None)
 def main() -> None:
     static_dir = Path(__file__).resolve().parent
     shared_state = SharedState()
-    attitude_filter = ComplementaryFilter()
+    estimator = MahonyEstimator()
     host = os.getenv("MINIFLIGHT_CONFIG_HOST", os.getenv("MINIFLIGHT_RENDER_HOST", "127.0.0.1"))
     port = int(os.getenv("MINIFLIGHT_CONFIG_PORT", "8002"))
     renderer = RendererServer(shared_state, host=host, port=port, static_dir=static_dir)
@@ -185,7 +204,7 @@ def main() -> None:
             "source": "waiting",
         },
         "attitude": {
-            "filter": attitude_filter.name,
+            "filter": "mahony",
             "quaternion": [1.0, 0.0, 0.0, 0.0],
             "euler_deg": [0.0, 0.0, 0.0],
             "euler_rad": [0.0, 0.0, 0.0],
@@ -194,7 +213,7 @@ def main() -> None:
     url = f"http://{host}:{port}".replace("0.0.0.0", "127.0.0.1")
     print(f"*** Configurator running at {url}")
     maybe_launch_browser(url)
-    producer = threading.Thread(target=imu_stream, args=(shared_state, attitude_filter), daemon=True)
+    producer = threading.Thread(target=imu_stream, args=(shared_state, estimator), daemon=True)
     producer.start()
     try:
         while producer.is_alive():

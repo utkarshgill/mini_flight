@@ -7,22 +7,19 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional, Sequence, Tuple
 
-from common.types import StateEstimate
+from common.types import SensorReadings
 
 
 class Board(ABC):
     """
     Abstract interface that every hardware target must implement.
-    The board is responsible for wiring HAL drivers, estimators, and actuators.
+    The board is responsible for wiring sensors, estimators, and actuators.
     Firmware talks only to this interface.
     """
 
-    def __init__(self, controller):
-        self.controller = controller
-
     @abstractmethod
-    def read_state(self) -> Tuple[StateEstimate, float]:
-        """Return the latest state estimate and timestamp (seconds)."""
+    def read_sensors(self) -> SensorReadings:
+        """Return the latest raw sensor readings."""
 
     @abstractmethod
     def write_actuators(self, commands: Sequence[float]) -> None:

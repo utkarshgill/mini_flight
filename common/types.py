@@ -5,7 +5,7 @@ Shared data structures for firmware ↔ HAL ↔ simulator boundaries.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 from common.math import Vector3D, Quaternion
 
@@ -27,5 +27,14 @@ class StateEstimate:
     velocity: Vector3D
     orientation: Quaternion
     angular_velocity: Vector3D
+
+
+@dataclass(frozen=True)
+class SensorReadings:
+    """Collection of raw sensor readings used by the estimator."""
+
+    imu: ImuSample
+    timestamp: float
+    altitude: Optional[float] = None
 
 
