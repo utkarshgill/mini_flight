@@ -1,26 +1,47 @@
+"""
+Simulated hardware board: glues firmware-facing board interface to the physics engine.
+"""
+
+from __future__ import annotations
+
 import numpy as np
-from miniflight.hal import HAL
-from sim import Vector3D, Quaternion, World, RungeKuttaIntegrator, GravitationalForce, GroundCollision, IMUSensor, Motor, Renderer
-from sim.engine import Quadcopter
+
 from common.math import wrap_angle
+from common.types import ImuSample, StateEstimate
+from miniflight.board import Board
+from common.interface import Sensor, Actuator, Estimator
+from sim import (
+    Vector3D,
+    Quaternion,
+    World,
+    RungeKuttaIntegrator,
+    GravitationalForce,
+    GroundCollision,
+    IMUSensor,
+    Motor,
+    Renderer,
+)
+from sim.engine import Quadcopter
+
 try:
     import hid
-except ImportError:
+except ImportError:  # pragma: no cover - dependency optional
     hid = None
 
-class Board(HAL):
-    """Firmware-side simulated HAL driving core physics."""
-    def __init__(self, dt: float = 0.01, controller=None, config=None):
-        super().__init__(config)
-        self.dt = dt
+
+class SimWorld:
+    """Encapsulates the physics world, vehicle, and input devices."""
+
+    def __init__(self, controller, dt: float, thrust_gain=5.0, max_tilt=0.5, yaw_rate_gain=np.pi / 2):
         self.controller = controller
-        # Build physics world and quad
+        self.dt = dt
+
+        # Build physics world and quadrotor
         self.quad = Quadcopter(position=Vector3D(0, 0, 0.1))
         self.quad.integrator = RungeKuttaIntegrator()
         self.quad.add_sensor(IMUSensor(accel_noise_std=0.0, gyro_noise_std=0.0))
-        # Inform renderer which URDF to load for the quad
         self.quad.urdf_filename = "quadrotor.urdf"
-        # X-configuration motors positions and spins
+
         L = self.quad.arm_length
         diag = L / np.sqrt(2)
         motor_positions = [
@@ -31,16 +52,25 @@ class Board(HAL):
         ]
         spins = [1, -1, 1, -1]
         for idx, (r, s) in enumerate(zip(motor_positions, spins)):
-            self.quad.add_actuator(Motor(idx, r_body=r, spin=s,
-                                          thrust_noise_std=0.0, torque_noise_std=0.0))
-        # Create world with gravity and ground collision
+            self.quad.add_actuator(
+                Motor(
+                    idx,
+                    r_body=r,
+                    spin=s,
+                    thrust_noise_std=0.0,
+                    torque_noise_std=0.0,
+                )
+            )
+        self._motor_positions = motor_positions
+        self._motor_spins = spins
+
         self.world = World(
             forces=[GravitationalForce(), GroundCollision(ground_level=0.0, restitution=0.5)],
-            dt=self.dt
+            dt=self.dt,
         )
         self.world.add_body(self.quad)
-        # Initial update to populate state
-        self.world.update()
+        self.world.update()  # populate initial state
+
         self._spawn_pose = {
             "position": tuple(self.quad.position.v.tolist()),
             "velocity": tuple(self.quad.velocity.v.tolist()),
@@ -49,16 +79,19 @@ class Board(HAL):
             "angular_velocity": tuple(self.quad.angular_velocity.v.tolist()),
         }
         self._space_held = False
-        # Set up visualization
-        try:
-            self.renderer = Renderer(self.world, config='X', gui=True)
-        except Exception as e:
-            print(f"Renderer init error: {e}")
+        self._latest_input = {}
 
-        # Input gains and HID setup (prefer DualSense if available)
-        self._thrust_gain = float(config.get('thrust_gain', 5.0)) if isinstance(config, dict) else 5.0
-        self._max_tilt = float(config.get('max_tilt', 0.5)) if isinstance(config, dict) else 0.5
-        self._yaw_rate_gain = float(config.get('yaw_rate_gain', np.pi/2)) if isinstance(config, dict) else (np.pi/2)
+        # Renderer
+        try:
+            self.renderer = Renderer(self.world, config="X", gui=True)
+        except Exception as exc:  # pragma: no cover - renderer optional
+            print(f"Renderer init error: {exc}")
+            self.renderer = None
+
+        # Input configuration
+        self._thrust_gain = thrust_gain
+        self._max_tilt = max_tilt
+        self._yaw_rate_gain = yaw_rate_gain
         self._hid = None
         if hid:
             try:
@@ -68,98 +101,136 @@ class Board(HAL):
             except Exception:
                 self._hid = None
 
-    def read(self):
-        """Return the primary quad Body and the current simulation time.
-        Also updates controller setpoints from input devices before control."""
-        # Update controller setpoints from input (DualSense preferred)
-        if self.controller is not None:
-            self._update_input_setpoints()
-        # Return the Body instance and current sim time
-        return self.quad, self.world.time
+    # -- Firmware-facing helpers -------------------------------------------------
 
-    def write(self, commands):
-        """Apply motor commands, handle keyboard input, advance physics, and render."""
-        # Update motor thrusts
+    def motor_geometry(self):
+        return self._motor_positions, self._motor_spins
+
+    def update_pilot_inputs(self):
+        """Poll input devices and update controller setpoints."""
+        keyboard_state = self._poll_renderer_input()
+        handled = self._update_from_dualsense()
+        if not handled:
+            self._update_from_keyboard(keyboard_state)
+
+    def imu_sample(self) -> ImuSample:
+        """Return a synthetic IMU sample from the quad state."""
+        accel = tuple(self.quad.acceleration.v.tolist())
+        gyro = tuple(self.quad.angular_velocity.v.tolist())
+        return ImuSample(accel=accel, gyro=gyro, timestamp=self.time())
+
+    def state(self) -> StateEstimate:
+        return StateEstimate(
+            position=Vector3D(*self.quad.position.v.tolist()),
+            velocity=Vector3D(*self.quad.velocity.v.tolist()),
+            orientation=Quaternion(*self.quad.orientation.q.tolist()),
+            angular_velocity=Vector3D(*self.quad.angular_velocity.v.tolist()),
+        )
+
+    def time(self) -> float:
+        return self.world.time
+
+    def apply_motor_commands(self, commands):
+        """Advance physics one tick with the provided motor commands."""
         self.quad.motor_thrusts = commands
-        # Advance simulation
         self.world.update()
-        input_state = {}
-        if hasattr(self, 'renderer'):
-            if hasattr(self.renderer, 'get_input_state'):
-                try:
-                    input_state = self.renderer.get_input_state()
-                except Exception as e:
-                    print(f"Renderer input error: {e}")
-            try:
-                self.renderer.draw()
-            except Exception as e:
-                print(f"Renderer draw error: {e}")
-        space_down = bool(input_state.get(' '))
+
+        input_state = self._latest_input
+        if " " in input_state:
+            space_down = bool(input_state.get(" "))
+        else:
+            space_down = False
         if space_down and not self._space_held:
             self._respawn_quad()
         self._space_held = space_down
-        if space_down:
-            input_state.pop(' ', None)
-        return commands
 
-    # --- Input helpers ---
-    def _update_input_setpoints(self):
-        dt = self.dt
-        # Prefer DualSense HID if available and readable
-        if self._hid is not None:
+        if self.renderer:
             try:
-                data = self._hid.read(64)
-            except OSError:
-                data = None
-            if data and len(data) >= 9 and data[0] == 0x01:
-                # Cross button and sticks
-                lx, ly, rx, ry = data[1], data[2], data[3], data[4]
-                def deadzone(v, dz=0.1):
-                    return v if abs(v) > dz else 0.0
-                norm_lx = deadzone((lx - 127)/127.0)
-                norm_ly = deadzone((127 - ly)/127.0)
-                norm_rx = deadzone((rx - 127)/127.0)
-                norm_ry = deadzone((127 - ry)/127.0)
-                # Altitude setpoint
-                self.controller.z_setpoint += norm_ly * self._thrust_gain * dt
-                self.controller.z_setpoint = float(np.clip(self.controller.z_setpoint, 0.0, 20.0))
-                # Attitude setpoints
-                self.controller.set_attitude_target(
-                    np.clip(norm_rx * self._max_tilt, -self._max_tilt, self._max_tilt),
-                    np.clip(norm_ry * self._max_tilt, -self._max_tilt, self._max_tilt),
-                    wrap_angle(self.controller.yaw_setpoint - norm_lx * self._yaw_rate_gain * dt)
-                )
-                return
-        # Fallback to keyboard input via renderer
-        input_state = {}
-        if hasattr(self, 'renderer') and hasattr(self.renderer, 'get_input_state'):
+                self.renderer.draw()
+            except Exception as exc:  # pragma: no cover
+                print(f"Renderer draw error: {exc}")
+
+    def close(self):
+        if self.renderer:
             try:
-                input_state = self.renderer.get_input_state()
+                self.renderer.shutdown()
             except Exception:
-                input_state = {}
-        # Throttle W/S
-        if input_state.get('w', False):
+                pass
+
+    # -- Input handling ----------------------------------------------------------
+
+    def _poll_renderer_input(self):
+        state = {}
+        if self.renderer and hasattr(self.renderer, "get_input_state"):
+            try:
+                state = self.renderer.get_input_state() or {}
+            except Exception:
+                state = {}
+        self._latest_input = dict(state)
+        return state
+
+    def _update_from_dualsense(self) -> bool:
+        if self._hid is None or self.controller is None:
+            return False
+        try:
+            data = self._hid.read(64)
+        except OSError:
+            data = None
+        if not data or len(data) < 9 or data[0] != 0x01:
+            return False
+
+        def deadzone(val, thresh=0.1):
+            return val if abs(val) > thresh else 0.0
+
+        lx, ly, rx, ry = data[1], data[2], data[3], data[4]
+        norm_lx = deadzone((lx - 127) / 127.0)
+        norm_ly = deadzone((127 - ly) / 127.0)
+        norm_rx = deadzone((rx - 127) / 127.0)
+        norm_ry = deadzone((127 - ry) / 127.0)
+
+        dt = self.dt
+        self.controller.z_setpoint += norm_ly * self._thrust_gain * dt
+        self.controller.z_setpoint = float(np.clip(self.controller.z_setpoint, 0.0, 20.0))
+        self.controller.set_attitude_target(
+            np.clip(norm_rx * self._max_tilt, -self._max_tilt, self._max_tilt),
+            np.clip(norm_ry * self._max_tilt, -self._max_tilt, self._max_tilt),
+            wrap_angle(self.controller.yaw_setpoint - norm_lx * self._yaw_rate_gain * dt),
+        )
+        return True
+
+    def _update_from_keyboard(self, keys):
+        if self.controller is None:
+            return
+        dt = self.dt
+        if keys.get("w", False):
             self.controller.z_setpoint += self._thrust_gain * dt
-        if input_state.get('s', False):
+        if keys.get("s", False):
             self.controller.z_setpoint -= self._thrust_gain * dt
         self.controller.z_setpoint = float(np.clip(self.controller.z_setpoint, 0.0, 20.0))
-        # Roll/Pitch arrows
-        roll_t = (-self._max_tilt if input_state.get('left', False)
-                  else self._max_tilt if input_state.get('right', False)
-                  else 0.0)
-        pitch_t = (self._max_tilt if input_state.get('up', False)
-                   else -self._max_tilt if input_state.get('down', False)
-                   else 0.0)
-        # Yaw A/D
+
+        roll_t = (
+            -self._max_tilt
+            if keys.get("left", False)
+            else self._max_tilt
+            if keys.get("right", False)
+            else 0.0
+        )
+        pitch_t = (
+            self._max_tilt
+            if keys.get("up", False)
+            else -self._max_tilt
+            if keys.get("down", False)
+            else 0.0
+        )
         yaw_sp = self.controller.yaw_setpoint
-        if input_state.get('a', False):
+        if keys.get("a", False):
             yaw_sp += self._yaw_rate_gain * dt
-        if input_state.get('d', False):
+        if keys.get("d", False):
             yaw_sp -= self._yaw_rate_gain * dt
         yaw_sp = wrap_angle(yaw_sp)
         self.controller.set_attitude_target(roll_t, pitch_t, yaw_sp)
 
-    def _respawn_quad(self) -> None:
+    def _respawn_quad(self):
         self.quad.position = Vector3D(*self._spawn_pose["position"])
         self.quad.velocity = Vector3D(*self._spawn_pose["velocity"])
         self.quad.acceleration = Vector3D(*self._spawn_pose["acceleration"])
@@ -167,8 +238,71 @@ class Board(HAL):
         self.quad.orientation.normalize()
         self.quad.angular_velocity = Vector3D(*self._spawn_pose["angular_velocity"])
         self.quad.integrator = RungeKuttaIntegrator()
-        actuator_count = len(getattr(self.quad, 'actuators', [])) or len(getattr(self.quad, 'motor_thrusts', [])) or 4
+        actuator_count = (
+            len(getattr(self.quad, "actuators", []))
+            or len(getattr(self.quad, "motor_thrusts", []))
+            or 4
+        )
         self.quad.motor_thrusts = [0.0] * actuator_count
         self.world.current_state, self.world.current_flat = self.world.get_state()
 
-__all__ = ["Board"]
+
+class SimImuSensor(Sensor):
+    """Virtual IMU driver for the simulator board."""
+
+    def __init__(self, world: SimWorld):
+        self._world = world
+
+    def read(self) -> ImuSample:
+        return self._world.imu_sample()
+
+
+class SimMotorActuator(Actuator):
+    """Virtual motor driver that feeds thrust commands into the simulator."""
+
+    def __init__(self, world: SimWorld):
+        self._world = world
+
+    def write(self, command) -> None:
+        self._world.apply_motor_commands(command)
+
+
+class DirectStateEstimator(Estimator):
+    """Simulator-only estimator: returns ground truth state."""
+
+    def __init__(self, world: SimWorld):
+        self._world = world
+
+    def update(self, sample: ImuSample, dt: float) -> StateEstimate:
+        del sample, dt  # unused
+        return self._world.state()
+
+
+class SimBoard(Board):
+    """Board implementation backed by the simulator world."""
+
+    def __init__(self, controller, dt: float = 0.01):
+        super().__init__(controller)
+        self.dt = dt
+        self._world = SimWorld(controller, dt)
+        self._imu = SimImuSensor(self._world)
+        self._motors = SimMotorActuator(self._world)
+        self._estimator = DirectStateEstimator(self._world)
+
+    def read_state(self):
+        self._world.update_pilot_inputs()
+        imu_sample = self._imu.read()
+        state = self._estimator.update(imu_sample, self.dt)
+        return state, self._world.time()
+
+    def write_actuators(self, commands):
+        self._motors.write(commands)
+
+    def motor_geometry(self):
+        return self._world.motor_geometry()
+
+    def close(self):
+        self._world.close()
+
+
+__all__ = ["SimBoard"]

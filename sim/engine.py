@@ -3,6 +3,7 @@
 
 import numpy as np
 from common.math import Vector3D, Quaternion, GRAVITY
+from common.types import StateEstimate
 from common.interface import Sensor, Actuator
 
 # --- World ---
@@ -31,7 +32,13 @@ class World:
     def _control(self, dt: float):
         for body in self.bodies:
             for controller in getattr(body, 'controllers', []):
-                cmd = controller.update(body, dt)
+                state = StateEstimate(
+                    position=Vector3D(*body.position.v.tolist()),
+                    velocity=Vector3D(*body.velocity.v.tolist()),
+                    orientation=Quaternion(*body.orientation.q.tolist()),
+                    angular_velocity=Vector3D(*body.angular_velocity.v.tolist()),
+                )
+                cmd = controller.update(state, dt)
                 if cmd is not None:
                     body.control_command = cmd
 

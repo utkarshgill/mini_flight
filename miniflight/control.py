@@ -3,10 +3,9 @@ Control module: generic PID and stability controllers.
 """
 import numpy as np
 
-from common.interface import Controller
+from common.interface import Controller, Actuator
 from common.math import wrap_angle, GRAVITY, Quaternion
-from common.interface import Actuator
-from miniflight.utils import load_config
+from common.types import StateEstimate
 
 
  
@@ -43,25 +42,15 @@ class StabilityController(Controller):
     Handles core stabilization PID loops for position and attitude.
     Wraps multiple PIDController instances for x, y, z, roll, pitch, yaw.
     """
-    def __init__(self, config=None):
-        # Load configuration for PID gains if provided
-        if config is None:
-            config = load_config()
-        pid_cfg = config.get('pid', {})
-        # Extract per-loop gains with defaults
-        x_cfg = pid_cfg.get('x', {})
-        y_cfg = pid_cfg.get('y', {})
-        z_cfg = pid_cfg.get('z', {})
-        roll_cfg = pid_cfg.get('roll', {})
-        pitch_cfg = pid_cfg.get('pitch', {})
-        yaw_cfg = pid_cfg.get('yaw', {})
-        # Instantiate PID controllers with config-driven gains
-        self.x_pid = PIDController(kp=x_cfg.get('kp', 0.2), ki=x_cfg.get('ki', 0.0), kd=x_cfg.get('kd', 0.3))
-        self.y_pid = PIDController(kp=y_cfg.get('kp', 0.2), ki=y_cfg.get('ki', 0.0), kd=y_cfg.get('kd', 0.3))
-        self.z_pid = PIDController(kp=z_cfg.get('kp', 1.5), ki=z_cfg.get('ki', 0.2), kd=z_cfg.get('kd', 3.0))
-        self.roll_pid = PIDController(kp=roll_cfg.get('kp', 2.0), ki=roll_cfg.get('ki', 0.0), kd=roll_cfg.get('kd', 0.3))
-        self.pitch_pid = PIDController(kp=pitch_cfg.get('kp', 2.0), ki=pitch_cfg.get('ki', 0.0), kd=pitch_cfg.get('kd', 0.3))
-        self.yaw_pid = PIDController(kp=yaw_cfg.get('kp', 1.0), ki=yaw_cfg.get('ki', 0.0), kd=yaw_cfg.get('kd', 0.1))
+
+    def __init__(self):
+        # Default gains (tunable)
+        self.x_pid = PIDController(kp=0.2, ki=0.0, kd=0.3)
+        self.y_pid = PIDController(kp=0.2, ki=0.0, kd=0.3)
+        self.z_pid = PIDController(kp=1.5, ki=0.2, kd=3.0)
+        self.roll_pid = PIDController(kp=2.0, ki=0.0, kd=0.3)
+        self.pitch_pid = PIDController(kp=2.0, ki=0.0, kd=0.3)
+        self.yaw_pid = PIDController(kp=1.0, ki=0.0, kd=0.1)
         # Reset integral and previous error state for all PIDs
         for pid in (self.x_pid, self.y_pid, self.z_pid, self.roll_pid, self.pitch_pid, self.yaw_pid):
             pid.reset()
@@ -73,13 +62,13 @@ class StabilityController(Controller):
         self.pitch_setpoint = 0.0
         self.yaw_setpoint = 0.0
 
-    def update(self, body, dt):
+    def update(self, state: StateEstimate, dt):
         # Position errors
-        x_error = self.x_setpoint - body.position.v[0]
-        y_error = self.y_setpoint - body.position.v[1]
-        z_error = self.z_setpoint - body.position.v[2]
+        x_error = self.x_setpoint - state.position.v[0]
+        y_error = self.y_setpoint - state.position.v[1]
+        z_error = self.z_setpoint - state.position.v[2]
         # Attitude error via quaternion (avoiding Euler singularities)
-        q_current = body.orientation
+        q_current = state.orientation
         q_desired = Quaternion.from_euler(self.roll_setpoint, self.pitch_setpoint, self.yaw_setpoint)
         q_error = q_desired * q_current.conjugate()
         q_error.normalize()
