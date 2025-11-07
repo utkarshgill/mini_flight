@@ -160,7 +160,7 @@ def imu_stream(shared: SharedState, estimator: MahonyEstimator) -> None:
             )
             readings = SensorReadings(imu=imu_sample, timestamp=world_time)
 
-            if shared.check_and_clear_reset_yaw():
+            if shared.consume_yaw_reset():
                 estimator.reset()
 
             state = estimator.update(readings, dt)

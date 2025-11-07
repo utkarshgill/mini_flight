@@ -26,6 +26,7 @@ class SharedState:
             "updated_at": time.time(),
         }
         self._input: Dict[str, bool] = {}
+        self._reset_yaw = False
 
     def set_snapshot(self, snapshot: Dict[str, Any]) -> None:
         with self._lock:
@@ -45,6 +46,17 @@ class SharedState:
     def get_input_state(self) -> Dict[str, bool]:
         with self._lock:
             return dict(self._input)
+
+    def request_yaw_reset(self) -> None:
+        with self._lock:
+            self._reset_yaw = True
+
+    def consume_yaw_reset(self) -> bool:
+        with self._lock:
+            if self._reset_yaw:
+                self._reset_yaw = False
+                return True
+            return False
 
 
 def _infer_mime_type(path: Path) -> str:
@@ -98,6 +110,12 @@ def _make_handler(shared_state: SharedState, static_dir: Path):
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+
+            if parsed.path == "/reset_yaw":
+                shared_state.request_yaw_reset()
+                self._send_response(204, "application/json", b"")
+                return
+
             if parsed.path != "/input":
                 self.send_error(404)
                 return

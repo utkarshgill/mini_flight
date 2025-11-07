@@ -41,17 +41,13 @@ class Controls:
         logger.info(f"Board initialized ({type(self.board).__name__})")
 
 
-    def update_and_control(self):
-        readings = self.board.read_sensors()
-        state = self.estimator.update(readings, self.dt)
-        cmd = self.controller.update(state, self.dt)
-        motors = list(self.mixer.mix(cmd)) if self.mixer is not None else cmd
-        self.board.write_actuators(motors)
-
     def run(self):
-        # Single scheduled step at dt calling update -> state_control -> publish
         def step():
-            self.update_and_control()
+            readings = self.board.read_sensors()
+            state = self.estimator.update(readings, self.dt)
+            cmd = self.controller.update(state, self.dt)
+            motors = list(self.mixer.mix(cmd)) if self.mixer is not None else cmd
+            self.board.write_actuators(motors)
 
         scheduler = Scheduler()
         scheduler.add_task(step, period=self.dt)

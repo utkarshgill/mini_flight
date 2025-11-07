@@ -47,6 +47,9 @@ class AttitudeVisualizer {
 
     this.currentQuaternion = new THREE.Quaternion();
     this.targetQuaternion = new THREE.Quaternion();
+    // Firmware reports quaternions in a z-up world; convert to three.js y-up.
+    this.basisQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    this.headingOffset = new THREE.Quaternion();
     this.initialized = false;
 
     this._animate = this._animate.bind(this);
@@ -60,11 +63,15 @@ class AttitudeVisualizer {
 
   setOrientation(quaternion) {
     if (!quaternion) return;
+    // Convert estimator orientation (z-up) to renderer frame (y-up)
+    const qDisp = tempQuaternion.copy(quaternion);
+    qDisp.premultiply(this.basisQuat);
+    qDisp.premultiply(this.headingOffset);
     if (!this.initialized) {
-      this.currentQuaternion.copy(quaternion);
+      this.currentQuaternion.copy(qDisp);
       this.initialized = true;
     }
-    this.targetQuaternion.copy(quaternion);
+    this.targetQuaternion.copy(qDisp);
   }
 
   async _loadModel() {
@@ -266,6 +273,13 @@ document.getElementById("resetYawBtn").addEventListener("click", async () => {
     await fetch("/reset_yaw", { method: "POST" });
   } catch (err) {
     console.error("config: failed to reset yaw", err);
+  }
+  if (attitudeViz) {
+    const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(attitudeViz.currentQuaternion);
+    const yaw = Math.atan2(fwd.z, fwd.x);
+    attitudeViz.headingOffset.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
+    attitudeViz.currentQuaternion.premultiply(attitudeViz.headingOffset);
+    attitudeViz.targetQuaternion.copy(attitudeViz.currentQuaternion);
   }
 });
 
