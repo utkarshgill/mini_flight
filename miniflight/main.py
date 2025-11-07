@@ -38,34 +38,28 @@ class Controls:
             self.mixer = GenericMixer(positions, spins)
         logger.info(f"Board initialized ({type(self.board).__name__})")
 
-        # Cached IO
-        self._state = None
-        self._time = 0.0
-        self._motors = None
 
     def update(self):
         # Read current state estimate and time from HAL
-        self._state, self._time = self.board.read_state()
+        return self.board.read_state()
 
-    def state_control(self):
+    def state_control(self, state):
         # Compute command from controller
-        cmd = self.controller.update(self._state, self.dt)
+        cmd = self.controller.update(state, self.dt)
         # Mix to motor thrusts if mixer available
-        if self.mixer is not None:
-            self._motors = list(self.mixer.mix(cmd))
-        else:
-            self._motors = cmd
-
-    def publish(self):
+        motors = list(self.mixer.mix(cmd)) if self.mixer is not None else cmd
+       
+        return cmd, motors
+    def publish(self, motors):
         # Write motor commands to HAL
-        self.board.write_actuators(self._motors)
+        self.board.write_actuators(motors)
 
     def run(self):
         # Single scheduled step at dt calling update -> state_control -> publish
         def step():
-            self.update()
-            self.state_control()
-            self.publish()
+            state, t = self.update()
+            cmd, motors = self.state_control(state)
+            self.publish(motors)
 
         scheduler = Scheduler()
         scheduler.add_task(step, period=self.dt)

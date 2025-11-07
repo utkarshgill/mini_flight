@@ -3,8 +3,6 @@
 
 import numpy as np
 from common.math import Vector3D, Quaternion, GRAVITY
-from common.types import StateEstimate
-from common.interface import Sensor, Actuator
 
 # --- World ---
 class World:
@@ -23,28 +21,9 @@ class World:
     def add_body(self, body):
         self.bodies.append(body)
 
-    def _sense(self, dt: float):
+    def _apply_forces_and_actuators(self, dt: float):
         for body in self.bodies:
-            for sensor in getattr(body, 'sensors', []):
-                sensor.read([body], dt)
-            body.acceleration = Vector3D()  # Reset acceleration after sensors read
-
-    def _control(self, dt: float):
-        for body in self.bodies:
-            for controller in getattr(body, 'controllers', []):
-                state = StateEstimate(
-                    position=Vector3D(*body.position.v.tolist()),
-                    velocity=Vector3D(*body.velocity.v.tolist()),
-                    orientation=Quaternion(*body.orientation.q.tolist()),
-                    angular_velocity=Vector3D(*body.angular_velocity.v.tolist()),
-                )
-                cmd = controller.update(state, dt)
-                if cmd is not None:
-                    body.control_command = cmd
-
-    def _actuate(self, dt: float):
-        for body in self.bodies:
-            # apply all registered force models
+            body.acceleration = Vector3D()
             for force in self.forces:
                 force.apply_to(body)
             for actuator in getattr(body, 'actuators', []):
@@ -94,16 +73,14 @@ class World:
         from common.scheduler import Scheduler
         sched = Scheduler()
         # Break down update into individual phases at dt intervals
-        # 1) Actuate based on last control_command
-        sched.add_task(lambda: self._actuate(self.dt), period=self.dt)
+        # 1) Apply forces/actuators based on last commands
+        sched.add_task(lambda: self._apply_forces_and_actuators(self.dt), period=self.dt)
         # 2) Integrate dynamics and record state
         def _integrate_and_record():
             self._integrate(self.dt)
             self.time += self.dt
             self.current_state, self.current_flat = self.get_state()
         sched.add_task(_integrate_and_record, period=self.dt)
-        # 3) Sense for next control cycle
-        sched.add_task(lambda: self._sense(self.dt), period=self.dt)
         # Optional render task
         if render_fn:
             sched.add_task(render_fn, period=1.0/render_fps)
@@ -112,10 +89,9 @@ class World:
     def update(self):
         """Advance the simulation by one internal time‐step (dt). Useful for step-by-step
         control loops where an external agent provides actions each iteration."""
-        # Actuate → Integrate → Sense (control is external)
-        self._actuate(self.dt)
+        # Apply actuators → Integrate (control is external)
+        self._apply_forces_and_actuators(self.dt)
         self._integrate(self.dt)
-        self._sense(self.dt)
         # Update time and cached state vectors
         self.time += self.dt
         self.current_state, self.current_flat = self.get_state()
@@ -207,8 +183,6 @@ class Body:
         self.integrator = integrator if integrator is not None else EulerIntegrator()
 
         self.actuators = []
-        self.sensors = []
-        self.controllers = []
 
     def apply_force(self, force):
         self.acceleration += Vector3D(*(force.v / self.mass))
@@ -224,12 +198,6 @@ class Body:
 
     def add_actuator(self, actuator):
         self.actuators.append(actuator)
-
-    def add_sensor(self, sensor):
-        self.sensors.append(sensor)
-
-    def add_controller(self, controller):
-        self.controllers.append(controller)
 
     def __repr__(self):
         return f"Body(position={self.position}, velocity={self.velocity}, acceleration={self.acceleration}, mass={self.mass})"
@@ -260,41 +228,8 @@ class GroundCollision:
 
 # --- End dynamics relocation ---
 
-# --- Sensors, actuators, mixers, and vehicle classes relocated from components.py ---
-class IMUSensor(Sensor):
-    """IMU sensor model: returns noisy acceleration and angular velocity."""
-    def __init__(self, accel_noise_std=0.0, gyro_noise_std=0.0,
-                 accel_bias_rw_std=0.0, gyro_bias_rw_std=0.0):
-        self.accel_noise_std = accel_noise_std
-        self.gyro_noise_std = gyro_noise_std
-
-        self.accel_bias_rw_std = accel_bias_rw_std
-        self.gyro_bias_rw_std = gyro_bias_rw_std
-
-        self._accel_bias = np.zeros(3)
-        self._gyro_bias = np.zeros(3)
-
-    def read(self, objects, dt):
-        for obj in objects:
-            true_accel = obj.acceleration.v
-            true_gyro = obj.angular_velocity.v
-
-            if self.accel_bias_rw_std > 0.0:
-                self._accel_bias += np.random.randn(3) * self.accel_bias_rw_std * np.sqrt(dt)
-            if self.gyro_bias_rw_std > 0.0:
-                self._gyro_bias += np.random.randn(3) * self.gyro_bias_rw_std * np.sqrt(dt)
-
-            noisy_accel = true_accel + self._accel_bias + np.random.randn(3) * self.accel_noise_std
-            noisy_gyro = true_gyro + self._gyro_bias + np.random.randn(3) * self.gyro_noise_std
-
-            obj.sensor_data = {
-                'accel': noisy_accel,
-                'gyro': noisy_gyro,
-                'accel_bias': self._accel_bias.copy(),
-                'gyro_bias': self._gyro_bias.copy(),
-            }
-
-class Motor(Actuator):
+# --- Actuators and vehicle classes relocated from components.py ---
+class Motor:
     """Individual rotor model with first-order lag and noise."""
     def __init__(self, idx, r_body, spin, kQ=0.02, thrust_noise_std=0.0, torque_noise_std=0.0, tau=0.02, max_thrust=None):
         self.idx = idx
@@ -348,7 +283,7 @@ class Quadcopter(Body):
         self.arm_length = arm_length
 
 # Add GraspActuator class
-class GraspActuator(Actuator):
+class GraspActuator:
     """Attaches a box rigidly to the quad at a fixed offset."""
     def __init__(self, box, offset=Vector3D(0, 0, -0.1)):
         self.box = box

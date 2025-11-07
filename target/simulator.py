@@ -17,7 +17,6 @@ from sim import (
     RungeKuttaIntegrator,
     GravitationalForce,
     GroundCollision,
-    IMUSensor,
     Motor,
     Renderer,
 )
@@ -39,7 +38,6 @@ class SimWorld:
         # Build physics world and quadrotor
         self.quad = Quadcopter(position=Vector3D(0, 0, 0.1))
         self.quad.integrator = RungeKuttaIntegrator()
-        self.quad.add_sensor(IMUSensor(accel_noise_std=0.0, gyro_noise_std=0.0))
         self.quad.urdf_filename = "quadrotor.urdf"
 
         L = self.quad.arm_length

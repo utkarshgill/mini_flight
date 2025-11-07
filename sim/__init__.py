@@ -2,7 +2,7 @@
 
 from common.math import Vector3D, Quaternion
 from .engine import Body, EulerIntegrator, RungeKuttaIntegrator, GravitationalForce, GroundCollision
-from .engine import IMUSensor, Motor
+from .engine import Motor
 from .engine import World
 from .serve import Renderer
 
@@ -12,7 +12,6 @@ from .serve import Renderer
 __all__ = [
     'Vector3D', 'Quaternion',
     'Body', 'EulerIntegrator', 'RungeKuttaIntegrator', 'GravitationalForce', 'GroundCollision',
-    'IMUSensor',
     'Motor',
     'World',
     'Renderer',
