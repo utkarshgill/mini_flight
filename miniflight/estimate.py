@@ -25,7 +25,7 @@ class MahonyEstimator(Estimator):
         self.kp = gains.kp
         self.ki = gains.ki
         self._bias = Vector3D()
-        self._q = Quaternion()  # world (z-up) → body
+        self._q = Quaternion()  # body → world (z-up)
         self._initialized = False
         self._last_state: Optional[StateEstimate] = None
         self._last_alt: Optional[float] = None
@@ -98,7 +98,7 @@ class MahonyEstimator(Estimator):
             self._initialized = True
             self._init_samples = []  # Clear samples after initialization
 
-        # Predicted gravity in body frame
+        # Predicted gravity in body frame (rotate world gravity by conjugate of body→world)
         v = self._q.conjugate().rotate(Vector3D(0, 0, -1))
         vx, vy, vz = v.v
 
