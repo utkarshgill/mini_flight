@@ -29,8 +29,8 @@ def init_board(target_name: str, dt: float) -> tuple[Board, CommandSource | None
         if input_kind == "dualsense":
             cmd_src = DualSenseCommandSource()
         else:
-            # keyboard via renderer embedded in sim world
-            get_keys = lambda: board.world.get_input_state()
+            # keyboard via renderer
+            get_keys = lambda: board.get_input_state()
             cmd_src = KeyboardCommandSource(get_keys=get_keys)
         return board, cmd_src
     raise NotImplementedError(f"Unsupported target '{target}'")

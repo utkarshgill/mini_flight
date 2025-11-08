@@ -5,6 +5,7 @@ Simulated hardware board: glues firmware-facing board interface to the physics e
 from __future__ import annotations
 
 import numpy as np
+from typing import Dict
 
 from common.math import wrap_angle, GRAVITY
 from common.types import ImuSample, SensorReadings, StateEstimate
@@ -217,10 +218,9 @@ class SimBoard(Board):
     def close(self):
         self._world.close()
 
-    # Expose world for constructing command sources in target init (firmware layer)
-    @property
-    def world(self) -> SimWorld:
-        return self._world
+    def get_input_state(self) -> Dict[str, bool]:
+        """Get keyboard state from renderer without exposing world."""
+        return self._world.get_input_state()
 
 
 __all__ = ["SimBoard"]

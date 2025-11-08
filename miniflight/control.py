@@ -3,7 +3,7 @@ Control module: generic PID and stability controllers.
 """
 import numpy as np
 
-from common.interface import Controller, Actuator
+from common.interface import Controller
 from common.math import wrap_angle, GRAVITY, Quaternion
 from common.types import StateEstimate
 
@@ -83,8 +83,8 @@ class StabilityController(Controller):
             self.yaw_setpoint = wrap_angle(yaw)
 
 # -----------------------------------------------------------------------------
-# GenericMixer moved here from targets/sim/components.py
-class GenericMixer(Actuator):
+# GenericMixer: converts 4-channel commands to per-motor thrusts
+class GenericMixer:
     """Generic mixer for arbitrary multirotor geometry."""
     def __init__(self, motor_positions, spins, kT=1.0, kQ=0.02):
         if len(motor_positions) != len(spins):
@@ -100,14 +100,6 @@ class GenericMixer(Actuator):
         rows.append([s * kQ for s in spins])
         self._A = np.array(rows)
         self._A_inv = np.linalg.pinv(self._A)
-
-    def apply_to(self, obj, dt):
-        cmd = getattr(obj, 'control_command', None)
-        if cmd is None or len(cmd) != 4:
-            return
-        thrusts = np.dot(self._A_inv, np.array(cmd))
-        thrusts = np.clip(thrusts, 0.0, None)
-        obj.motor_thrusts = thrusts 
 
     def mix(self, cmd):
         """Mix a 4-channel command into per-motor thrusts without needing an obj."""
