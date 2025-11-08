@@ -68,10 +68,12 @@ class DualSenseCommandSource(CommandSource):
         max_tilt: float = 0.5,
         yaw_rate_gain: float = math.pi / 2,
         z_gain: float = 5.0,
+        deadzone: float = 0.08,
     ):
         self._max_tilt = float(max_tilt)
         self._yaw_rate_gain = float(yaw_rate_gain)
         self._z_gain = float(z_gain)
+        self._deadzone = float(deadzone)
 
         try:
             import hid  # type: ignore
@@ -100,6 +102,15 @@ class DualSenseCommandSource(CommandSource):
         norm_ly = (127 - ly) / 127.0
         norm_rx = (rx - 127) / 127.0
         norm_ry = (127 - ry) / 127.0
+
+        # Apply deadzone to prevent drift
+        def apply_dz(val):
+            return val if abs(val) > self._deadzone else 0.0
+        
+        norm_lx = apply_dz(norm_lx)
+        norm_ly = apply_dz(norm_ly)
+        norm_rx = apply_dz(norm_rx)
+        norm_ry = apply_dz(norm_ry)
 
         z_delta = norm_ly * self._z_gain * dt
         roll_t = max(-self._max_tilt, min(self._max_tilt, norm_rx * self._max_tilt))
