@@ -5,9 +5,9 @@ Interface definitions for sensors, actuators, controllers, and estimators.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Protocol
+from typing import Any
 
-from common.types import ImuSample, StateEstimate, PilotCommand
+from common.types import SensorReadings, StateEstimate, PilotCommand
 
 
 class Sensor(ABC):
@@ -38,8 +38,8 @@ class Estimator(ABC):
     """Abstract base for sensor fusion / state estimators."""
 
     @abstractmethod
-    def update(self, sample: ImuSample, dt: float) -> StateEstimate:
-        """Update state estimate from the latest sensor measurement."""
+    def update(self, readings: SensorReadings, dt: float) -> StateEstimate:
+        """Update state estimate from the latest sensor measurements."""
 
 
 class CommandSource(ABC):

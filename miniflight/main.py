@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-Entry point for firmware: load configuration, setup HAL and scheduler, and run control loop.
+Entry point for firmware: load configuration, set up board, and run control loop.
 """
 import os
 import numpy as np
 
 from common.logger import get_logger
-from common.scheduler import Scheduler
+from common.realtime import RateKeeper
 from miniflight.control import StabilityController, GenericMixer
-from miniflight.board   import Board
+from miniflight.board import Board
 from miniflight.estimate import MahonyEstimator
 from common.math import wrap_angle
 from miniflight.input import KeyboardCommandSource, DualSenseCommandSource
 from common.interface import CommandSource
+from common.types import PilotCommand, SensorReadings, StateEstimate
 
 logger = get_logger("firmware")
 
@@ -54,29 +55,58 @@ class Controls:
             self.mixer = GenericMixer(positions, spins)
         logger.info(f"Board initialized ({type(self.board).__name__})")
 
+    # -- Pipeline stages -----------------------------------------------------
+
+    def update(self) -> SensorReadings:
+        """Sample all asynchronous inputs (pilot + sensors)."""
+        pilot_command = self._read_pilot_command()
+        self._apply_pilot_command(pilot_command)
+        return self.board.read_sensors()
+
+    def state_control(self, readings: SensorReadings) -> tuple[StateEstimate, list[float]]:
+        """Run estimator + controller to produce motor commands."""
+        state = self.estimator.update(readings, self.dt)
+        control_cmd = self.controller.update(state, self.dt)
+        if self.mixer is not None:
+            motor_outputs = list(self.mixer.mix(control_cmd))
+        else:
+            motor_outputs = list(control_cmd)
+        return state, motor_outputs
+
+    def publish(self, motor_outputs: list[float]) -> None:
+        """Write actuator commands and handle outputs (telemetry, logging, etc.)."""
+        self.board.write_actuators(motor_outputs)
+
+    # -- Helpers -------------------------------------------------------------
+
+    def _read_pilot_command(self) -> PilotCommand:
+        if self.command_source is None:
+            return PilotCommand()
+        try:
+            return self.command_source.read(self.dt)
+        except Exception as exc:
+            logger.warning(f"Command source read failed: {exc}")
+            return PilotCommand()
+
+    def _apply_pilot_command(self, cmd: PilotCommand) -> None:
+        # Altitude target integrates pilot delta
+        self.controller.z_setpoint += cmd.z_setpoint_delta
+        self.controller.z_setpoint = float(np.clip(self.controller.z_setpoint, 0.0, 20.0))
+
+        # Yaw integrates rate command
+        self.controller.yaw_setpoint = wrap_angle(self.controller.yaw_setpoint + cmd.yaw_rate * self.dt)
+
+        # Roll/pitch are treated as direct angle targets
+        self.controller.set_attitude_target(cmd.roll_target, cmd.pitch_target, self.controller.yaw_setpoint)
 
     def run(self):
-        def step():
-            # Read pilot command and update controller setpoints
-            if self.command_source is not None:
-                pc = self.command_source.read(self.dt)
-                # Altitude target integrates pilot delta
-                self.controller.z_setpoint += pc.z_setpoint_delta
-                self.controller.z_setpoint = float(np.clip(self.controller.z_setpoint, 0.0, 20.0))
-                # Yaw integrates rate command
-                self.controller.yaw_setpoint = wrap_angle(self.controller.yaw_setpoint + pc.yaw_rate * self.dt)
-                self.controller.set_attitude_target(pc.roll_target, pc.pitch_target, self.controller.yaw_setpoint)
-
-            readings = self.board.read_sensors()
-            state = self.estimator.update(readings, self.dt)
-            cmd = self.controller.update(state, self.dt)
-            motors = list(self.mixer.mix(cmd)) if self.mixer is not None else cmd
-            self.board.write_actuators(motors)
-
-        scheduler = Scheduler()
-        scheduler.add_task(step, period=self.dt)
         logger.info("Starting controls loop")
-        scheduler.run()
+        rk = RateKeeper(rate_hz=1.0 / self.dt, print_delay_threshold=None)
+        while True:
+            readings = self.update()
+            _state, motor_outputs = self.state_control(readings)
+            self.publish(motor_outputs)
+            rk.keep_time()
 
 
 def main():

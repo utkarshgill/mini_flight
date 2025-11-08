@@ -67,24 +67,26 @@ class World:
 
     def run(self, render_fn=None, render_fps=50):
         """
-        Run simulation and optional rendering in real time using Scheduler.
+        Run simulation and optional rendering in real time using a rate keeper.
         render_fn: optional function to call each render period.
         """
-        from common.scheduler import Scheduler
-        sched = Scheduler()
-        # Break down update into individual phases at dt intervals
-        # 1) Apply forces/actuators based on last commands
-        sched.add_task(lambda: self._apply_forces_and_actuators(self.dt), period=self.dt)
-        # 2) Integrate dynamics and record state
-        def _integrate_and_record():
+        from common.realtime import RateKeeper
+
+        rk = RateKeeper(rate_hz=1.0 / self.dt, print_delay_threshold=None)
+        render_period = 1.0 / render_fps if render_fn else None
+        next_render_time = render_period if render_period is not None else None
+
+        while True:
+            self._apply_forces_and_actuators(self.dt)
             self._integrate(self.dt)
             self.time += self.dt
             self.current_state, self.current_flat = self.get_state()
-        sched.add_task(_integrate_and_record, period=self.dt)
-        # Optional render task
-        if render_fn:
-            sched.add_task(render_fn, period=1.0/render_fps)
-        sched.run()
+
+            if render_fn and render_period is not None and next_render_time is not None and self.time >= next_render_time:
+                render_fn()
+                next_render_time += render_period
+
+            rk.keep_time()
 
     def update(self):
         """Advance the simulation by one internal time‐step (dt). Useful for step-by-step

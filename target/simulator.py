@@ -7,8 +7,8 @@ from __future__ import annotations
 import numpy as np
 from typing import Dict
 
-from common.math import wrap_angle, GRAVITY
-from common.types import ImuSample, SensorReadings, StateEstimate
+from common.math import GRAVITY
+from common.types import ImuSample, SensorReadings
 from miniflight.board import Board
 from common.interface import Sensor, Actuator
 from sim import (
@@ -27,7 +27,7 @@ from sim.engine import Quadcopter
 class SimWorld:
     """Encapsulates the physics world, vehicle, and input devices."""
 
-    def __init__(self, dt: float, thrust_gain=5.0, max_tilt=0.5, yaw_rate_gain=np.pi / 2):
+    def __init__(self, dt: float):
         self.dt = dt
 
         # Build physics world and quadrotor
@@ -81,10 +81,6 @@ class SimWorld:
             print(f"Renderer init error: {exc}")
             self.renderer = None
 
-        # Input configuration (used by renderer for keyboard capture)
-        self._thrust_gain = thrust_gain
-        self._max_tilt = max_tilt
-        self._yaw_rate_gain = yaw_rate_gain
         # No direct HID/gamepad handling in the simulator layer
 
     # -- Firmware-facing helpers -------------------------------------------------
@@ -106,16 +102,11 @@ class SimWorld:
         gyro = tuple(self.quad.angular_velocity.v.tolist())
         return ImuSample(accel=accel, gyro=gyro, timestamp=self.time())
 
-    def state(self) -> StateEstimate:
-        return StateEstimate(
-            position=Vector3D(*self.quad.position.v.tolist()),
-            velocity=Vector3D(*self.quad.velocity.v.tolist()),
-            orientation=Quaternion(*self.quad.orientation.q.tolist()),
-            angular_velocity=Vector3D(*self.quad.angular_velocity.v.tolist()),
-        )
-
     def time(self) -> float:
         return self.world.time
+
+    def altitude(self) -> float:
+        return float(self.quad.position.v[2])
 
     def apply_motor_commands(self, commands):
         """Advance physics one tick with the provided motor commands."""
@@ -206,8 +197,7 @@ class SimBoard(Board):
 
     def read_sensors(self) -> SensorReadings:
         imu_sample = self._imu.read()
-        altitude = float(self._world.quad.position.v[2])
-        return SensorReadings(imu=imu_sample, timestamp=imu_sample.timestamp, altitude=altitude)
+        return SensorReadings(imu=imu_sample, timestamp=imu_sample.timestamp, altitude=self._world.altitude())
 
     def write_actuators(self, commands):
         self._motors.write(commands)
