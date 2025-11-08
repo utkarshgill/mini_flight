@@ -50,8 +50,7 @@ class AttitudeVisualizer {
     this._loader = new OBJLoader();
     this._loadModel();
 
-    this.currentQuaternion = new THREE.Quaternion();
-    this.targetQuaternion = new THREE.Quaternion();
+    this.quaternion = new THREE.Quaternion();
     this.initialized = false;
 
     this._animate = this._animate.bind(this);
@@ -65,12 +64,8 @@ class AttitudeVisualizer {
 
   setOrientation(quaternion) {
     if (!quaternion) return;
-    const qDisp = tempQuaternion.copy(quaternion).normalize();
-    if (!this.initialized) {
-      this.currentQuaternion.copy(qDisp);
-      this.initialized = true;
-    }
-    this.targetQuaternion.copy(qDisp);
+    this.quaternion.copy(quaternion).normalize();
+    this.initialized = true;
   }
 
   async _loadModel() {
@@ -131,8 +126,7 @@ class AttitudeVisualizer {
   }
 
   _animate() {
-    this.currentQuaternion.slerp(this.targetQuaternion, 0.18);
-    this.drone.setRotationFromQuaternion(this.currentQuaternion);
+    this.drone.setRotationFromQuaternion(this.quaternion);
     this.renderer.render(this.scene, this.camera);
     requestAnimationFrame(this._animate);
   }
