@@ -11,7 +11,10 @@ const gyroValuesEl = document.getElementById("gyroValues");
 const attitudeValuesEl = document.getElementById("attitudeValues");
 const statusEl = document.getElementById("status");
 const vizContainer = document.getElementById("attitudeViz");
+const attitudeOverlay = document.getElementById("attitudeOverlay");
 const tempQuaternion = new THREE.Quaternion();
+const identityQuaternion = new THREE.Quaternion();
+  const calibrateBtn = document.getElementById("calibrateBtn");
 
 class AttitudeVisualizer {
   constructor(container) {
@@ -35,6 +38,8 @@ class AttitudeVisualizer {
 
     const grid = new THREE.GridHelper(4, 8, 0x1f2937, 0x111827);
     this.scene.add(grid);
+    
+    // Axes: Red=X, Green=Y, Blue=Z (drone nose points along +Z)
     const axes = new THREE.AxesHelper(1.5);
     axes.material.depthTest = false;
     axes.renderOrder = 1;
@@ -47,9 +52,6 @@ class AttitudeVisualizer {
 
     this.currentQuaternion = new THREE.Quaternion();
     this.targetQuaternion = new THREE.Quaternion();
-    // Firmware reports quaternions in a z-up world; convert to three.js y-up.
-    this.basisQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
-    this.headingOffset = new THREE.Quaternion();
     this.initialized = false;
 
     this._animate = this._animate.bind(this);
@@ -63,10 +65,7 @@ class AttitudeVisualizer {
 
   setOrientation(quaternion) {
     if (!quaternion) return;
-    // Convert estimator orientation (z-up) to renderer frame (y-up)
-    const qDisp = tempQuaternion.copy(quaternion);
-    qDisp.premultiply(this.basisQuat);
-    qDisp.premultiply(this.headingOffset);
+    const qDisp = tempQuaternion.copy(quaternion).normalize();
     if (!this.initialized) {
       this.currentQuaternion.copy(qDisp);
       this.initialized = true;
@@ -91,23 +90,24 @@ class AttitudeVisualizer {
         }
       });
 
-      const body = new THREE.Group();
-      body.add(raw);
-
-      const preBox = new THREE.Box3().setFromObject(body);
+      // Scale and orient the model to match simulator
+      const preBox = new THREE.Box3().setFromObject(raw);
       const size = preBox.getSize(new THREE.Vector3());
       const span = Math.max(size.x, size.y, size.z) || 1;
-      body.scale.setScalar(1.6 / span);
+      raw.scale.setScalar(1.6 / span);
 
-      body.rotation.x = Math.PI / 2;
-      body.rotation.z = Math.PI;
+      // Align model with board frame (nose forward, top up)
+      raw.rotation.x = 0;
+      raw.rotation.y = 0;
+      raw.rotation.z = 0;
 
       const pivot = new THREE.Group();
-      pivot.add(body);
+      pivot.add(raw);
 
+      // Center the model at origin
       const box = new THREE.Box3().setFromObject(pivot);
       const center = box.getCenter(new THREE.Vector3());
-      body.position.sub(center);
+      raw.position.sub(center);
 
       this.scene.remove(this.drone);
       this.drone = pivot;
@@ -243,19 +243,49 @@ async function pollState() {
       renderVector(gyroValuesEl, "g", gyro, "°/s");
 
       const attitude = data.attitude;
-      if (attitudeViz && attitude?.quaternion?.length === 4) {
+      const attitudeStatus = attitude?.status ?? null;
+      const initialized = attitudeStatus ? attitudeStatus.initialized !== false : true;
+      const progressValue =
+        attitudeStatus && typeof attitudeStatus.progress === "number"
+          ? Math.min(Math.max(attitudeStatus.progress, 0), 1)
+          : initialized
+            ? 1
+            : 0;
+      const progressPct = Math.round(progressValue * 100);
+
+      if (attitudeOverlay) {
+        if (!initialized) {
+          attitudeOverlay.textContent = `Calibrating orientation… ${progressPct}%`;
+          attitudeOverlay.classList.add("visible");
+        } else {
+          attitudeOverlay.classList.remove("visible");
+        }
+      }
+
+      if (initialized && attitudeViz && attitude?.quaternion?.length === 4) {
         const [w, x, y, z] = attitude.quaternion.map(Number);
         if ([w, x, y, z].every((value) => Number.isFinite(value))) {
           tempQuaternion.set(x, y, z, w);
           attitudeViz.setOrientation(tempQuaternion);
         }
+      } else if (!initialized) {
+        if (attitudeViz) {
+          attitudeViz.setOrientation(identityQuaternion);
+        }
+        if (attitudeValuesEl) {
+          attitudeValuesEl.textContent = "Calibrating orientation…";
+        }
       }
-      if (attitude?.euler_deg) {
+
+      if (initialized && attitude?.euler_deg) {
         renderAngles(attitudeValuesEl, attitude.euler_deg);
       }
 
       const filterName = attitude?.filter || "unknown";
-      statusEl.textContent = `Source: ${source || "unknown"} | Filter: ${filterName}`;
+      const baseStatus = `Source: ${source || "unknown"} | Filter: ${filterName}`;
+      statusEl.textContent = initialized
+        ? baseStatus
+        : `${baseStatus} | Calibrating… ${progressPct}%`;
     }
   } catch (err) {
     console.warn("config: state poll failed", err);
@@ -268,18 +298,22 @@ async function pollState() {
 
 pollState();
 
-document.getElementById("resetYawBtn").addEventListener("click", async () => {
-  try {
-    await fetch("/reset_yaw", { method: "POST" });
-  } catch (err) {
-    console.error("config: failed to reset yaw", err);
-  }
-  if (attitudeViz) {
-    const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(attitudeViz.currentQuaternion);
-    const yaw = Math.atan2(fwd.z, fwd.x);
-    attitudeViz.headingOffset.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
-    attitudeViz.currentQuaternion.premultiply(attitudeViz.headingOffset);
-    attitudeViz.targetQuaternion.copy(attitudeViz.currentQuaternion);
-  }
-});
+if (calibrateBtn) {
+  calibrateBtn.addEventListener("click", async () => {
+    if (attitudeOverlay) {
+      attitudeOverlay.textContent = "Calibrating orientation…";
+      attitudeOverlay.classList.add("visible");
+    }
+    if (attitudeValuesEl) {
+      attitudeValuesEl.textContent = "Calibrating orientation…";
+    }
+    try {
+      await fetch("/reset_yaw", { method: "POST" });
+      console.log("Orientation calibration requested");
+    } catch (err) {
+      console.error("config: failed to start calibration", err);
+    }
+  });
+}
+
 

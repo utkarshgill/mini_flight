@@ -26,12 +26,12 @@ Open source flight controllers are bloated, complex, and nearly impossible to de
    pip install -e .
    ```
    
-2. Run the configurator (IMU viewer at `http://127.0.0.1:8002`):
+2. Run the configurator (IMU viewer at `http://127.0.0.1:8002`, only supports Speedybee STM32F405v3, for now.):
    ```bash
    python config/serve.py
    ```
 
-2. Run the quad simulation (starts the web viewer on `http://127.0.0.1:8001`):
+3. Run the quad simulation (starts the web viewer on `http://127.0.0.1:8001`):
    ```bash
    python sim/serve.py
    ```

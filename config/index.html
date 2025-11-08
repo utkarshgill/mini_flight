@@ -66,6 +66,12 @@
         font-size: 18px;
         letter-spacing: 0.02em;
       }
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
       .chart-container {
         position: relative;
         width: 100%;
@@ -84,6 +90,25 @@
         background: radial-gradient(circle at top, rgba(59,130,246,0.12), rgba(15,23,42,0.9));
         box-shadow: inset 0 0 0 1px rgba(59,130,246,0.08);
         overflow: hidden;
+      }
+      .viz-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 23, 42, 0.76);
+        color: #e0f2fe;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        font-size: 15px;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+        pointer-events: none;
+        z-index: 5;
+      }
+      .viz-overlay.visible {
+        opacity: 1;
       }
       .viz-container canvas {
         width: 100% !important;
@@ -132,6 +157,21 @@
         grid-row: 1 / span 2;
         display: flex;
         flex-direction: column;
+      }
+        .action-btn {
+        padding: 8px 16px;
+        background: rgba(59,130,246,0.15);
+        border: 1px solid rgba(59,130,246,0.3);
+        border-radius: 8px;
+        color: #60a5fa;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.15s;
+      }
+      .action-btn:hover {
+        background: rgba(59,130,246,0.25);
+        border-color: rgba(59,130,246,0.5);
       }
       footer {
         opacity: 0.6;
@@ -195,8 +235,13 @@
           <div class="values" id="gyroValues"></div>
         </div>
         <div class="card attitude-card">
-          <h2>Orientation</h2>
-          <div class="viz-container" id="attitudeViz"></div>
+          <div class="card-header">
+            <h2>Orientation</h2>
+              <button class="action-btn" id="calibrateBtn">Calibrate</button>
+          </div>
+          <div class="viz-container" id="attitudeViz">
+            <div class="viz-overlay" id="attitudeOverlay">Calibrating orientation…</div>
+          </div>
           <div class="values attitudes" id="attitudeValues">Waiting…</div>
         </div>
       </div>

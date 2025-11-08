@@ -14,7 +14,7 @@ from common.types import SensorReadings, StateEstimate
 @dataclass
 class MahonyGains:
     kp: float = 0.5
-    ki: float = 0.02
+    ki: float = 0.001  # Very small for slow gyro bias correction
 
 
 class MahonyEstimator(Estimator):
@@ -29,6 +29,28 @@ class MahonyEstimator(Estimator):
         self._initialized = False
         self._last_state: Optional[StateEstimate] = None
         self._last_alt: Optional[float] = None
+        self._init_samples = []
+        self._init_sample_count = 20  # Average 20 samples before initializing
+
+    @property
+    def initialized(self) -> bool:
+        return self._initialized
+
+    @property
+    def initialization_progress(self) -> float:
+        if self._initialized:
+            return 1.0
+        if not self._init_samples:
+            return 0.0
+        return min(len(self._init_samples) / self._init_sample_count, 1.0)
+
+    def set_initial_bias_deg(self, gx_deg: float, gy_deg: float, gz_deg: float) -> None:
+        """Seed gyro bias (in deg/s). Helpful right after bias calibration."""
+        self._bias = Vector3D(
+            math.radians(gx_deg),
+            math.radians(gy_deg),
+            math.radians(gz_deg),
+        )
 
     def reset(self) -> None:
         self._bias = Vector3D()
@@ -36,6 +58,7 @@ class MahonyEstimator(Estimator):
         self._initialized = False
         self._last_state = None
         self._last_alt = None
+        self._init_samples = []
 
     def update(self, readings: SensorReadings, dt: float) -> StateEstimate:
         if dt <= 0.0:
@@ -43,7 +66,8 @@ class MahonyEstimator(Estimator):
 
         sample = readings.imu
         ax, ay, az = sample.accel  # specific force (points up at rest)
-        gx, gy, gz = sample.gyro   # rad/s
+        # Input gyro is in degrees/sec; convert to rad/sec for integration
+        gx, gy, gz = [math.radians(v) for v in sample.gyro]
 
         # Convert specific force to gravity direction (pointing down)
         norm = math.sqrt(ax * ax + ay * ay + az * az)
@@ -56,18 +80,30 @@ class MahonyEstimator(Estimator):
         grav_z = -az / norm
 
         if not self._initialized:
-            roll0 = math.atan2(-grav_y, -grav_z)
-            pitch0 = math.atan2(grav_x, math.sqrt(grav_y * grav_y + grav_z * grav_z))
+            # Collect samples for stable initialization
+            self._init_samples.append((grav_x, grav_y, grav_z))
+            if len(self._init_samples) < self._init_sample_count:
+                return self._fallback()
+            
+            # Average gravity samples to reduce noise
+            avg_gx = sum(s[0] for s in self._init_samples) / len(self._init_samples)
+            avg_gy = sum(s[1] for s in self._init_samples) / len(self._init_samples)
+            avg_gz = sum(s[2] for s in self._init_samples) / len(self._init_samples)
+            
+            # Initialize attitude from averaged gravity: z-up frame, gravity points down
+            roll0 = math.atan2(-avg_gy, -avg_gz)
+            pitch0 = math.atan2(avg_gx, math.sqrt(avg_gy * avg_gy + avg_gz * avg_gz))
             self._q = Quaternion.from_euler(roll0, pitch0, 0.0)
             self._q.normalize()
             self._initialized = True
+            self._init_samples = []  # Clear samples after initialization
 
         # Predicted gravity in body frame
         v = self._q.conjugate().rotate(Vector3D(0, 0, -1))
         vx, vy, vz = v.v
 
-        # Skip accel correction if magnitude deviates too far from 1g
-        if abs(norm - 1.0) > 0.15:
+        # Skip accel correction if magnitude deviates too far from 1g (tight threshold)
+        if abs(norm - 1.0) > 0.05:
             ex = ey = ez = 0.0
         else:
             # Error between measured and predicted gravity
@@ -75,13 +111,19 @@ class MahonyEstimator(Estimator):
             ey = grav_z * vx - grav_x * vz
             ez = grav_x * vy - grav_y * vx
 
-        if self.ki > 0.0:
-            self._bias += Vector3D(ex, ey, ez) * (self.ki * dt)
+        # For IMU-only (no magnetometer), do not correct yaw from accelerometer
+        ez = 0.0
+
+        # Only adapt bias when nearly still (accel trustworthy and angular rate low)
+        ang_mag = math.sqrt(gx * gx + gy * gy + gz * gz)
+        if self.ki > 0.0 and abs(norm - 1.0) <= 0.02 and ang_mag < math.radians(20.0):
+            # Integrate bias for roll/pitch only; ignore yaw without mag
+            self._bias += Vector3D(ex, ey, 0.0) * (self.ki * dt)
 
         # Corrected gyro
         gx_c = gx + self.kp * ex + self._bias.v[0]
         gy_c = gy + self.kp * ey + self._bias.v[1]
-        gz_c = gz + self.kp * ez + self._bias.v[2]
+        gz_c = gz + self._bias.v[2]  # no accel-based yaw correction
 
         # Integrate quaternion: q̇ = 0.5 * q ⊗ ω
         omega = Quaternion(0.0, gx_c, gy_c, gz_c)

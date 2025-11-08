@@ -113,8 +113,16 @@ def measure_bias(frames: Generator[bytes, None, None], samples: int = 200) -> tu
         gyro_sum[0] += gx
         gyro_sum[1] += gy
         gyro_sum[2] += gz
-    acc_bias = [s / samples for s in acc_sum]
+    # Gyro bias: average (should be zero at rest)
     gyro_bias = [s / samples for s in gyro_sum]
+    
+    # Accel bias: remove offset from expected 1g on Z-axis (board level, z-up)
+    # Expected: ax=0, ay=0, az=+1g (2048 LSB/g)
+    avg_ax = acc_sum[0] / samples
+    avg_ay = acc_sum[1] / samples
+    avg_az = acc_sum[2] / samples
+    acc_bias = [avg_ax, avg_ay, avg_az - ACC_LSB_PER_G]  # Keep gravity, remove offset
+    
     return acc_bias, gyro_bias
 
 
@@ -138,6 +146,10 @@ def imu_stream(shared: SharedState, estimator: MahonyEstimator) -> None:
     acc_fmt = ", ".join(f"{v:.1f}" for v in acc_bias)
     gyro_fmt = ", ".join(f"{v:.1f}" for v in gyro_bias)
     print(f"Bias calibrated: accel=[{acc_fmt}] gyro=[{gyro_fmt}]")
+    # Seed gyro bias in estimator (deg/s → estimator handles conversion)
+    estimator.set_initial_bias_deg(gyro_bias[0] / GYRO_LSB_PER_DPS,
+                                   gyro_bias[1] / GYRO_LSB_PER_DPS,
+                                   gyro_bias[2] / GYRO_LSB_PER_DPS)
     try:
         start = time.perf_counter()
         last_update = None
@@ -149,13 +161,15 @@ def imu_stream(shared: SharedState, estimator: MahonyEstimator) -> None:
             dt = 0.0 if last_update is None else loop_time - last_update
             last_update = loop_time
 
-            # Adjust axes to match simulator orientation (negate Y/Z)
-            ax_r, ay_r, az_r = ax, -ay, -az
-            gx_r, gy_r, gz_r = gx, -gy, -gz
+            # Adjust axes to match firmware frame
+            # Hardware reports: yaw→gx, roll→gy, pitch→gz
+            # Firmware expects: roll→gx, pitch→gy, yaw→gz
+            ax_r, ay_r, az_r = ax, ay, az
+            gx_r, gy_r, gz_r = gy, gz, gx  # Permute: roll=gy, pitch=gz, yaw=gx
 
             imu_sample = ImuSample(
                 accel=(ax_r, ay_r, az_r),
-                gyro=(math.radians(gx_r), math.radians(gy_r), math.radians(gz_r)),
+                gyro=(gx_r, gy_r, gz_r),  # deg/s; estimator converts internally
                 timestamp=world_time,
             )
             readings = SensorReadings(imu=imu_sample, timestamp=world_time)
@@ -169,8 +183,8 @@ def imu_stream(shared: SharedState, estimator: MahonyEstimator) -> None:
             snapshot = {
                 "world_time": world_time,
                 "imu": {
-                    "accel": [ax, ay, az],
-                    "gyro": [gx, gy, gz],
+                    "accel": [ax_r, ay_r, az_r],
+                    "gyro": [gx_r, gy_r, gz_r],
                     "source": DEVICE,
                 },
                 "attitude": {
@@ -178,6 +192,10 @@ def imu_stream(shared: SharedState, estimator: MahonyEstimator) -> None:
                     "quaternion": [float(v) for v in state.orientation.q.tolist()],
                     "euler_deg": [math.degrees(roll), math.degrees(pitch), math.degrees(yaw)],
                     "euler_rad": [roll, pitch, yaw],
+                    "status": {
+                        "initialized": estimator.initialized,
+                        "progress": estimator.initialization_progress,
+                    },
                 },
             }
 
