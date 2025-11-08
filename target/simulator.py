@@ -22,17 +22,11 @@ from sim import (
 )
 from sim.engine import Quadcopter
 
-try:
-    import hid
-except ImportError:  # pragma: no cover - dependency optional
-    hid = None
-
 
 class SimWorld:
     """Encapsulates the physics world, vehicle, and input devices."""
 
-    def __init__(self, controller, dt: float, thrust_gain=5.0, max_tilt=0.5, yaw_rate_gain=np.pi / 2):
-        self.controller = controller
+    def __init__(self, dt: float, thrust_gain=5.0, max_tilt=0.5, yaw_rate_gain=np.pi / 2):
         self.dt = dt
 
         # Build physics world and quadrotor
@@ -86,30 +80,20 @@ class SimWorld:
             print(f"Renderer init error: {exc}")
             self.renderer = None
 
-        # Input configuration
+        # Input configuration (used by renderer for keyboard capture)
         self._thrust_gain = thrust_gain
         self._max_tilt = max_tilt
         self._yaw_rate_gain = yaw_rate_gain
-        self._hid = None
-        if hid:
-            try:
-                self._hid = hid.device()
-                self._hid.open(0x054C, 0x0CE6)  # DualSense VID/PID
-                self._hid.set_nonblocking(True)
-            except Exception:
-                self._hid = None
+        # No direct HID/gamepad handling in the simulator layer
 
     # -- Firmware-facing helpers -------------------------------------------------
 
     def motor_geometry(self):
         return self._motor_positions, self._motor_spins
 
-    def update_pilot_inputs(self):
-        """Poll input devices and update controller setpoints."""
-        keyboard_state = self._poll_renderer_input()
-        handled = self._update_from_dualsense()
-        if not handled:
-            self._update_from_keyboard(keyboard_state)
+    def get_input_state(self):
+        """Return the latest input keys from the renderer (non-blocking)."""
+        return self._poll_renderer_input()
 
     def imu_sample(self) -> ImuSample:
         """Return synthetic IMU sample: specific force and body rates."""
@@ -171,66 +155,7 @@ class SimWorld:
         self._latest_input = dict(state)
         return state
 
-    def _update_from_dualsense(self) -> bool:
-        if self._hid is None or self.controller is None:
-            return False
-        try:
-            data = self._hid.read(64)
-        except OSError:
-            data = None
-        if not data or len(data) < 9 or data[0] != 0x01:
-            return False
-
-        def deadzone(val, thresh=0.1):
-            return val if abs(val) > thresh else 0.0
-
-        lx, ly, rx, ry = data[1], data[2], data[3], data[4]
-        norm_lx = deadzone((lx - 127) / 127.0)
-        norm_ly = deadzone((127 - ly) / 127.0)
-        norm_rx = deadzone((rx - 127) / 127.0)
-        norm_ry = deadzone((127 - ry) / 127.0)
-
-        dt = self.dt
-        self.controller.z_setpoint += norm_ly * self._thrust_gain * dt
-        self.controller.z_setpoint = float(np.clip(self.controller.z_setpoint, 0.0, 20.0))
-        self.controller.set_attitude_target(
-            np.clip(norm_rx * self._max_tilt, -self._max_tilt, self._max_tilt),
-            np.clip(norm_ry * self._max_tilt, -self._max_tilt, self._max_tilt),
-            wrap_angle(self.controller.yaw_setpoint - norm_lx * self._yaw_rate_gain * dt),
-        )
-        return True
-
-    def _update_from_keyboard(self, keys):
-        if self.controller is None:
-            return
-        dt = self.dt
-        if keys.get("w", False):
-            self.controller.z_setpoint += self._thrust_gain * dt
-        if keys.get("s", False):
-            self.controller.z_setpoint -= self._thrust_gain * dt
-        self.controller.z_setpoint = float(np.clip(self.controller.z_setpoint, 0.0, 20.0))
-
-        roll_t = (
-            -self._max_tilt
-            if keys.get("left", False)
-            else self._max_tilt
-            if keys.get("right", False)
-            else 0.0
-        )
-        pitch_t = (
-            self._max_tilt
-            if keys.get("up", False)
-            else -self._max_tilt
-            if keys.get("down", False)
-            else 0.0
-        )
-        yaw_sp = self.controller.yaw_setpoint
-        if keys.get("a", False):
-            yaw_sp += self._yaw_rate_gain * dt
-        if keys.get("d", False):
-            yaw_sp -= self._yaw_rate_gain * dt
-        yaw_sp = wrap_angle(yaw_sp)
-        self.controller.set_attitude_target(roll_t, pitch_t, yaw_sp)
+    # NOTE: Controller coupling removed; inputs are consumed by firmware via command source.
 
     def _respawn_quad(self):
         self.quad.position = Vector3D(*self._spawn_pose["position"])
@@ -272,14 +197,13 @@ class SimMotorActuator(Actuator):
 class SimBoard(Board):
     """Board implementation backed by the simulator world."""
 
-    def __init__(self, controller, dt: float = 0.01):
+    def __init__(self, dt: float = 0.01):
         self.dt = dt
-        self._world = SimWorld(controller, dt)
+        self._world = SimWorld(dt)
         self._imu = SimImuSensor(self._world)
         self._motors = SimMotorActuator(self._world)
 
     def read_sensors(self) -> SensorReadings:
-        self._world.update_pilot_inputs()
         imu_sample = self._imu.read()
         altitude = float(self._world.quad.position.v[2])
         return SensorReadings(imu=imu_sample, timestamp=imu_sample.timestamp, altitude=altitude)
@@ -292,6 +216,11 @@ class SimBoard(Board):
 
     def close(self):
         self._world.close()
+
+    # Expose world for constructing command sources in target init (firmware layer)
+    @property
+    def world(self) -> SimWorld:
+        return self._world
 
 
 __all__ = ["SimBoard"]

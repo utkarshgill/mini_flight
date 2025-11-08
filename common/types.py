@@ -20,6 +20,20 @@ class ImuSample:
 
 
 @dataclass(frozen=True)
+class PilotCommand:
+    """
+    High-level pilot input used by firmware:
+    - roll_target, pitch_target: desired angles (rad) for self-leveling (angle mode)
+    - yaw_rate: desired yaw rate (rad/s)
+    - z_setpoint_delta: change to altitude setpoint (m) to apply this tick
+    """
+    roll_target: float = 0.0
+    pitch_target: float = 0.0
+    yaw_rate: float = 0.0
+    z_setpoint_delta: float = 0.0
+
+
+@dataclass(frozen=True)
 class StateEstimate:
     """Estimated vehicle state used by the controller."""
 
