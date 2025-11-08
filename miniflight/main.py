@@ -39,8 +39,11 @@ def init_board(target_name: str, dt: float) -> tuple[Board, CommandSource | None
 class Controls:
     """Controls-style loop: update() -> state_control() -> publish() -> run()."""
 
-    def __init__(self, target: str | None, dt: float = 0.01):
-        self.dt = dt
+    def __init__(self, target: str | None, rate_hz: float = 100.0):
+        if rate_hz <= 0.0:
+            raise ValueError("rate_hz must be positive")
+        self.rate_hz = float(rate_hz)
+        self.dt = 1.0 / self.rate_hz
         self.controller = StabilityController()
         self.estimator = MahonyEstimator()
 
@@ -101,7 +104,7 @@ class Controls:
 
     def run(self):
         logger.info("Starting controls loop")
-        rk = RateKeeper(rate_hz=1.0 / self.dt, print_delay_threshold=None)
+        rk = RateKeeper(rate_hz=self.rate_hz, print_delay_threshold=None)
         while True:
             readings = self.update()
             _state, motor_outputs = self.state_control(readings)
@@ -112,7 +115,7 @@ class Controls:
 def main():
     target_env = os.environ.get("TARGET")
     target = target_env.lower() if target_env else None
-    Controls(target, dt=0.01).run()
+    Controls(target, rate_hz=100.0).run()
 
 if __name__ == "__main__":
     main() 

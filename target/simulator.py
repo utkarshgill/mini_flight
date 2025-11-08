@@ -28,7 +28,10 @@ class SimWorld:
     """Encapsulates the physics world, vehicle, and input devices."""
 
     def __init__(self, dt: float):
+        if dt <= 0.0:
+            raise ValueError("dt must be positive")
         self.dt = dt
+        self.rate_hz = 1.0 / dt
 
         # Build physics world and quadrotor
         self.quad = Quadcopter(position=Vector3D(0, 0, 0.1))
