@@ -96,13 +96,15 @@ class SimWorld:
         return self._poll_renderer_input()
 
     def imu_sample(self) -> ImuSample:
-        """Return synthetic IMU sample: specific force and body rates."""
+        """Return synthetic IMU sample: specific force (g) and body rates (deg/s)."""
         a_world = self.quad.acceleration.v
         g_world = np.array([0.0, 0.0, -GRAVITY])
         f_world = a_world - g_world
         f_body_vec = self.quad.orientation.conjugate().rotate(Vector3D(*f_world))
         accel = tuple(f_body_vec.v.tolist())
-        gyro = tuple(self.quad.angular_velocity.v.tolist())
+        # Convert gyro from rad/s to deg/s to match hardware convention
+        gyro_rad = self.quad.angular_velocity.v
+        gyro = tuple(np.degrees(gyro_rad).tolist())
         return ImuSample(accel=accel, gyro=gyro, timestamp=self.time())
 
     def time(self) -> float:
