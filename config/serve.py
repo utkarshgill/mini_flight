@@ -138,6 +138,8 @@ def apply_bias(values: tuple[int, ...], acc_bias, gyro_bias) -> tuple[float, flo
 
 
 def imu_stream(shared: SharedState, estimator: MahonyEstimator) -> None:
+    from common.realtime import RateKeeper
+    
     fd = open_serial()
     print(f"Connected to {DEVICE} @ {BAUD} baud")
     frames = read_frames(fd)
@@ -150,6 +152,8 @@ def imu_stream(shared: SharedState, estimator: MahonyEstimator) -> None:
     estimator.set_initial_bias_deg(gyro_bias[0] / GYRO_LSB_PER_DPS,
                                    gyro_bias[1] / GYRO_LSB_PER_DPS,
                                    gyro_bias[2] / GYRO_LSB_PER_DPS)
+    
+    rk = RateKeeper(rate_hz=100.0, print_delay_threshold=None)
     try:
         start = time.perf_counter()
         last_update = None
@@ -200,7 +204,7 @@ def imu_stream(shared: SharedState, estimator: MahonyEstimator) -> None:
             }
 
             shared.set_snapshot(snapshot)
-            time.sleep(0.02)
+            rk.keep_time()
     finally:
         if fd is not None:
             os.close(fd)
