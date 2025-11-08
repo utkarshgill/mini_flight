@@ -4,8 +4,11 @@ import { OBJLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/j
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
+const SKY_COLOR = 0x15263f;
+const GROUND_COLOR = 0x1e2a3f;
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b1120);
+scene.background = new THREE.Color(SKY_COLOR);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 100);
 camera.position.set(3.5, 2.2, 3.5);
@@ -28,9 +31,17 @@ const dir = new THREE.DirectionalLight(0xffffff, 0.9);
 dir.position.set(5, 8, 4);
 scene.add(dir);
 
-const grid = new THREE.GridHelper(20, 20, 0x334155, 0x1e293b);
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(60, 60),
+  new THREE.MeshStandardMaterial({ color: GROUND_COLOR, roughness: 0.85, metalness: 0.05 })
+);
+ground.receiveShadow = true;
+ground.position.z = -0.002;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(20, 20, 0x41556f, 0x2a364a);
 grid.rotation.x = Math.PI / 2;
-grid.position.z = 0;
+grid.position.z = 0.001;
 scene.add(grid);
 
 function addBuildings() {
@@ -65,18 +76,23 @@ function addBuildings() {
     roof.castShadow = roof.receiveShadow = true;
     scene.add(roof);
 
+    const windowHeight = h / 6;
+    const windowSpacing = windowHeight * 1.05;
+    const baseHeight = Math.max(windowHeight * 0.6 + 0.05, h * 0.38);
+
     for (let row = -2; row <= 2; row++) {
       for (let col = -2; col <= 2; col++) {
         if (Math.abs(row) === 2 && Math.abs(col) === 2) continue;
-        const windowGeom = new THREE.PlaneGeometry(w / 6, h / 6);
+        const windowGeom = new THREE.PlaneGeometry(w / 6, windowHeight);
         const windowMat = new THREE.MeshStandardMaterial({ color: windowColor, emissive: 0x1e293b, emissiveIntensity: 0.5 });
         const windowMesh = new THREE.Mesh(windowGeom, windowMat);
-        windowMesh.position.set(x + (w / 2 + 0.01), y + (col * (d / 6)), h * 0.3 + row * (h / 6));
+        const windowZ = baseHeight + row * windowSpacing;
+        windowMesh.position.set(x + (w / 2 + 0.01), y + (col * (d / 6)), windowZ);
         windowMesh.rotation.y = Math.PI / 2;
         scene.add(windowMesh);
 
         const windowMeshBack = windowMesh.clone();
-        windowMeshBack.position.set(x - (w / 2 + 0.01), y + (col * (d / 6)), h * 0.3 + row * (h / 6));
+        windowMeshBack.position.set(x - (w / 2 + 0.01), y + (col * (d / 6)), windowZ);
         windowMeshBack.rotation.y = -Math.PI / 2;
         scene.add(windowMeshBack);
       }
