@@ -68,12 +68,10 @@ class DualSenseCommandSource(CommandSource):
         max_tilt: float = 0.5,
         yaw_rate_gain: float = math.pi / 2,
         z_gain: float = 5.0,
-        deadzone: float = 0.1,
     ):
         self._max_tilt = float(max_tilt)
         self._yaw_rate_gain = float(yaw_rate_gain)
         self._z_gain = float(z_gain)
-        self._dz = float(deadzone)
 
         try:
             import hid  # type: ignore
@@ -86,9 +84,6 @@ class DualSenseCommandSource(CommandSource):
                 self._hid.set_nonblocking(True)
             except Exception:
                 self._hid = None
-
-    def _dz(self, val: float) -> float:
-        return val if abs(val) > self._dz else 0.0
 
     def read(self, dt: float) -> PilotCommand:
         if self._hid is None:
@@ -105,16 +100,6 @@ class DualSenseCommandSource(CommandSource):
         norm_ly = (127 - ly) / 127.0
         norm_rx = (rx - 127) / 127.0
         norm_ry = (127 - ry) / 127.0
-
-        # Apply deadzone
-        if abs(norm_lx) < self._dz:
-            norm_lx = 0.0
-        if abs(norm_ly) < self._dz:
-            norm_ly = 0.0
-        if abs(norm_rx) < self._dz:
-            norm_rx = 0.0
-        if abs(norm_ry) < self._dz:
-            norm_ry = 0.0
 
         z_delta = norm_ly * self._z_gain * dt
         roll_t = max(-self._max_tilt, min(self._max_tilt, norm_rx * self._max_tilt))
